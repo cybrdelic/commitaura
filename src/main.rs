@@ -7,7 +7,7 @@ use log::{error, info};
 use std::{env, fs};
 use thiserror::Error;
 
-const MODEL_NAME: &str = "claude-instant-1";
+const MODEL_NAME: &str = "claude-3-sonnet-20240229";
 
 #[derive(Error, Debug)]
 enum CommitauraError {
