@@ -3,7 +3,7 @@ use colored::*;
 use log::{error, info};
 use openai_api_rust::chat::*;
 use openai_api_rust::*;
-use std::{env, fs};
+use std::fs;
 use thiserror::Error;
 
 const MODEL_NAME: &str = "gpt-3.5-turbo";
@@ -57,46 +57,35 @@ fn main() -> Result<(), CommitauraError> {
 
     let cli = Cli::parse();
 
-    println!(
-        "{}",
-        "🌟 Welcome to Commitaura - Intelligent Git Commit Assistant 🌟"
-            .yellow()
-            .bold()
-    );
-
     match cli.command {
         Commands::Commit => {
-            println!("{}", "📝 Generating commit message...".cyan());
+            println!("Generating commit message...");
             match handle_commit(&openai) {
-                Ok(msg) => println!("{}", format!("✅ Committed: {}", msg).green()),
-                Err(e) => eprintln!("{}", format!("❌ Error: {}", e).red()),
+                Ok(msg) => println!("Commit successful: {}", msg.green()),
+                Err(e) => eprintln!("Error: {}", e.to_string().red()),
             }
         }
         Commands::UpdateReadme => {
-            println!("{}", "📚 Updating README...".cyan());
+            println!("Updating README...");
             match handle_update_readme(&openai) {
-                Ok(msg) => println!("{}", format!("✅ README Updated: {}", msg).green()),
-                Err(e) => eprintln!("{}", format!("❌ Error: {}", e).red()),
+                Ok(msg) => println!("README updated: {}", msg.green()),
+                Err(e) => eprintln!("Error: {}", e.to_string().red()),
             }
         }
         Commands::CommitAndUpdate => {
-            println!("{}", "🚀 Committing changes and updating README...".cyan());
+            println!("Committing changes and updating README...");
             match handle_commit(&openai) {
                 Ok(msg) => {
-                    println!("{}", format!("✅ Committed: {}", msg).green());
+                    println!("Commit successful: {}", msg.green());
                     match handle_update_readme(&openai) {
-                        Ok(readme_msg) => {
-                            println!("{}", format!("✅ README Updated: {}", readme_msg).green())
-                        }
-                        Err(e) => eprintln!("{}", format!("❌ Error updating README: {}", e).red()),
+                        Ok(readme_msg) => println!("README updated: {}", readme_msg.green()),
+                        Err(e) => eprintln!("Error updating README: {}", e.to_string().red()),
                     }
                 }
-                Err(e) => eprintln!("{}", format!("❌ Error committing: {}", e).red()),
+                Err(e) => eprintln!("Error committing: {}", e.to_string().red()),
             }
         }
     }
-
-    println!("{}", "Thank you for using Commitaura! 👋".yellow());
 
     Ok(())
 }
@@ -169,8 +158,17 @@ fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
         logit_bias: None,
         user: None,
         messages: vec![
-            Message { role: Role::System, content: "You are a helpful assistant that generates concise and meaningful Git commit messages.".to_string() },
-            Message { role: Role::User, content: format!("Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message):\n{}", diff) },
+            Message {
+                role: Role::System,
+                content: "You are a helpful assistant that generates concise and meaningful Git commit messages.".to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: format!(
+                    "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message):\n{}",
+                    diff
+                ),
+            },
         ],
     };
 
@@ -220,8 +218,17 @@ fn generate_readme_update(openai: &OpenAI) -> Result<String, CommitauraError> {
         logit_bias: None,
         user: None,
         messages: vec![
-            Message { role: Role::System, content: "You are a helpful assistant that suggests updates for README files based on changes in a Git repository.".to_string() },
-            Message { role: Role::User, content: format!("Based on the following changes in the repository:\n{}\nProvide suggestions to update the README.md to reflect these changes.", files_changed) },
+            Message {
+                role: Role::System,
+                content: "You are a helpful assistant that suggests updates for README files based on changes in a Git repository.".to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: format!(
+                    "Based on the following changes in the repository:\n{}\nProvide suggestions to update the README.md to reflect these changes.",
+                    files_changed
+                ),
+            },
         ],
     };
 
