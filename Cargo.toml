@@ -4,12 +4,13 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-anthropic = "0.0.8"
+openai_api_rust = "0.1.9"
 clap = { version = "4.0", features = ["derive"] }
 colored = "2.0"
-dotenv = "0.15"
-env_logger = "0.11.5"
+console = "0.15"
+dialoguer = "0.11.0"
+indicatif = "0.17"
 log = "0.4"
+env_logger = "0.11.5"
+dotenv = "0.15"
 thiserror = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-openai_api_rust = "0.1.9"
