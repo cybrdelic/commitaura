@@ -129,6 +129,21 @@ fn check_staged_changes() -> Result<(), CommitauraError> {
     }
 }
 
+fn perform_git_commit(message: &str) -> Result<(), CommitauraError> {
+    let status = std::process::Command::new("git")
+        .args(&["commit", "-m", message])
+        .status()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CommitauraError::GitOperationFailed(
+            "Git commit failed".to_string(),
+        ))
+    }
+}
+
 async fn generate_commit_message(api_key: &str) -> Result<String, CommitauraError> {
     let client = ClientBuilder::default()
         .api_key(api_key.to_string())
@@ -155,6 +170,7 @@ async fn generate_commit_message(api_key: &str) -> Result<String, CommitauraErro
     let complete_request = CompleteRequestBuilder::default()
         .prompt(prompt)
         .model(MODEL_NAME.to_string())
+        .max_tokens_to_sample(1000_usize) // Add this line
         .stream(false)
         .stop_sequences(vec![HUMAN_PROMPT.to_string()])
         .build()
@@ -174,21 +190,6 @@ async fn generate_commit_message(api_key: &str) -> Result<String, CommitauraErro
     } else {
         info!("Generated commit message: {}", commit_message);
         Ok(commit_message)
-    }
-}
-
-fn perform_git_commit(message: &str) -> Result<(), CommitauraError> {
-    let status = std::process::Command::new("git")
-        .args(&["commit", "-m", message])
-        .status()
-        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(CommitauraError::GitOperationFailed(
-            "Git commit failed".to_string(),
-        ))
     }
 }
 
@@ -218,6 +219,7 @@ async fn generate_readme_update(api_key: &str) -> Result<String, CommitauraError
     let complete_request = CompleteRequestBuilder::default()
         .prompt(prompt)
         .model(MODEL_NAME.to_string())
+        .max_tokens_to_sample(1000_usize) // Add this line
         .stream(false)
         .stop_sequences(vec![HUMAN_PROMPT.to_string()])
         .build()
@@ -239,7 +241,6 @@ async fn generate_readme_update(api_key: &str) -> Result<String, CommitauraError
         Ok(readme_updates)
     }
 }
-
 fn update_readme_file(updates: &str) -> Result<(), CommitauraError> {
     let current_readme = fs::read_to_string("README.md").unwrap_or_default();
     let updated_readme = format!("{}\n\n{}", current_readme, updates);
