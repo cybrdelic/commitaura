@@ -1,24 +1,34 @@
-// src/main.rs
+use anthropic::client::ClientBuilder;
+use anthropic::types::CompleteRequestBuilder;
+use anthropic::{AI_PROMPT, HUMAN_PROMPT};
 use clap::{Parser, Subcommand};
 use colored::*;
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph, Tabs},
-    Terminal,
-};
+use log::{error, info};
+use std::{env, fs};
+use thiserror::Error;
+
+const MODEL_NAME: &str = "claude-instant-1";
+
+#[derive(Error, Debug)]
+enum CommitauraError {
+    #[error("No staged changes detected")]
+    NoStagedChanges,
+
+    #[error("Git operation failed: {0}")]
+    GitOperationFailed(String),
+
+    #[error("API request failed: {0}")]
+    ApiRequestFailed(String),
+
+    #[error("Environment variable not set: {0}")]
+    EnvVarNotSet(String),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Anthropic API error: {0}")]
+    AnthropicError(String),
+}
 
 #[derive(Parser)]
 #[command(name = "Commitaura")]
@@ -30,184 +40,209 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Commit with a message
-    Commit {
-        /// Commit message
-        #[arg(short, long)]
-        message: String,
-    },
+    /// Automatically generate commit message and commit
+    Commit,
     /// Update README based on changes
     UpdateReadme,
     /// Commit and update README
-    CommitAndUpdate {
-        /// Commit message
-        #[arg(short, long)]
-        message: String,
-    },
+    CommitAndUpdate,
 }
 
-enum InputMode {
-    Normal,
-    Editing,
-}
+#[tokio::main]
+async fn main() -> Result<(), CommitauraError> {
+    env_logger::init();
+    dotenv::dotenv().ok();
 
-struct App<'a> {
-    tabs: Vec<&'a str>,
-    selected_tab: usize,
-    input: String,
-    input_mode: InputMode,
-}
+    let api_key = env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| CommitauraError::EnvVarNotSet("ANTHROPIC_API_KEY".to_string()))?;
 
-impl<'a> App<'a> {
-    fn new() -> App<'a> {
-        App {
-            tabs: vec!["Commit", "Update README", "Commit & Update"],
-            selected_tab: 0,
-            input: String::new(),
-            input_mode: InputMode::Normal,
-        }
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
+    println!(
+        "{}",
+        "🌟 Welcome to Commitaura - Intelligent Git Commit Assistant 🌟"
+            .yellow()
+            .bold()
+    );
+
     match cli.command {
-        Commands::Commit { message } => {
-            // Implement commit logic here
-            println!(
-                "{}",
-                format!("Committing with message: {}", message).green()
-            );
+        Commands::Commit => {
+            println!("{}", "📝 Generating commit message...".cyan());
+            match handle_commit(&api_key).await {
+                Ok(msg) => println!("{}", format!("✅ Committed: {}", msg).green()),
+                Err(e) => eprintln!("{}", format!("❌ Error: {}", e).red()),
+            }
         }
         Commands::UpdateReadme => {
-            // Implement README update logic here
-            println!("{}", "Updating README based on changes...".blue());
-        }
-        Commands::CommitAndUpdate { message } => {
-            // Implement commit and README update logic here
-            // Initialize TUI
-            enable_raw_mode()?;
-            let mut stdout = io::stdout();
-            execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-            let backend = CrosstermBackend::new(stdout);
-            let mut terminal = Terminal::new(backend)?;
-
-            let app = App::new();
-            let res = run_app(&mut terminal, app, &message);
-
-            // Restore terminal
-            disable_raw_mode()?;
-            execute!(
-                terminal.backend_mut(),
-                LeaveAlternateScreen,
-                DisableMouseCapture
-            )?;
-            terminal.show_cursor()?;
-
-            if let Err(err) = res {
-                println!("Error: {:?}", err);
+            println!("{}", "📚 Updating README...".cyan());
+            match handle_update_readme(&api_key).await {
+                Ok(msg) => println!("{}", format!("✅ README Updated: {}", msg).green()),
+                Err(e) => eprintln!("{}", format!("❌ Error: {}", e).red()),
             }
-
-            println!(
-                "{}",
-                "Commit and README update completed successfully!".green()
-            );
+        }
+        Commands::CommitAndUpdate => {
+            println!("{}", "🚀 Committing changes and updating README...".cyan());
+            match handle_commit(&api_key).await {
+                Ok(msg) => {
+                    println!("{}", format!("✅ Committed: {}", msg).green());
+                    match handle_update_readme(&api_key).await {
+                        Ok(readme_msg) => {
+                            println!("{}", format!("✅ README Updated: {}", readme_msg).green())
+                        }
+                        Err(e) => eprintln!("{}", format!("❌ Error updating README: {}", e).red()),
+                    }
+                }
+                Err(e) => eprintln!("{}", format!("❌ Error committing: {}", e).red()),
+            }
         }
     }
+
+    println!("{}", "Thank you for using Commitaura! 👋".yellow());
 
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App, message: &str) -> io::Result<()> {
-    loop {
-        terminal.draw(|f| {
-            // Define layout
-            let size = f.size();
+async fn handle_commit(api_key: &str) -> Result<String, CommitauraError> {
+    check_staged_changes()?;
+    let commit_message = generate_commit_message(api_key).await?;
+    perform_git_commit(&commit_message)?;
+    Ok(commit_message)
+}
 
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints(
-                    [
-                        Constraint::Length(3),
-                        Constraint::Min(2),
-                        Constraint::Length(3),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
+async fn handle_update_readme(api_key: &str) -> Result<String, CommitauraError> {
+    check_staged_changes()?;
+    let readme_update = generate_readme_update(api_key).await?;
+    update_readme_file(&readme_update)?;
+    Ok("README.md updated based on recent changes.".to_string())
+}
 
-            // Header with Tabs
-            let titles = app
-                .tabs
-                .iter()
-                .map(|t| {
-                    Spans::from(Span::styled(
-                        *t,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                })
-                .collect::<Vec<Spans>>();
+fn check_staged_changes() -> Result<(), CommitauraError> {
+    let output = std::process::Command::new("git")
+        .args(&["diff", "--staged", "--quiet"])
+        .status()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
 
-            let tabs = Tabs::new(titles)
-                .select(app.selected_tab)
-                .block(Block::default().borders(Borders::ALL).title("Commitaura"))
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .style(Style::default().fg(Color::White))
-                .divider(Span::raw("|"));
-
-            f.render_widget(tabs, chunks[0]);
-
-            // Main Content
-            let info = match app.selected_tab {
-                0 => format!("Commit Message:\n[bold green]{}[/bold green]", message),
-                1 => "Updating README based on changes...".to_string(),
-                2 => format!(
-                    "Committing and updating README with message:\n[bold green]{}[/bold green]",
-                    message
-                ),
-                _ => "".to_string(),
-            };
-
-            let paragraph = Paragraph::new(info)
-                .block(Block::default().borders(Borders::ALL).title("Info"))
-                .alignment(Alignment::Left);
-
-            f.render_widget(paragraph, chunks[1]);
-
-            // Footer
-            let footer = Paragraph::new("Press 'q' to exit")
-                .block(Block::default().borders(Borders::ALL).title("Footer"))
-                .alignment(Alignment::Center);
-
-            f.render_widget(footer, chunks[2]);
-        })?;
-
-        // Handle input
-        if event::poll(Duration::from_millis(100))? {
-            if let CEvent::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Left => {
-                        if app.selected_tab > 0 {
-                            app.selected_tab -= 1;
-                        }
-                    }
-                    KeyCode::Right => {
-                        if app.selected_tab < app.tabs.len() - 1 {
-                            app.selected_tab += 1;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+    if output.success() {
+        Err(CommitauraError::NoStagedChanges)
+    } else {
+        Ok(())
     }
+}
+
+async fn generate_commit_message(api_key: &str) -> Result<String, CommitauraError> {
+    let client = ClientBuilder::default()
+        .api_key(api_key.to_string())
+        .build()
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let diff_output = std::process::Command::new("git")
+        .args(&["diff", "--staged"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let diff = String::from_utf8(diff_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    if diff.trim().is_empty() {
+        return Err(CommitauraError::NoStagedChanges);
+    }
+
+    let prompt = format!(
+        "{HUMAN_PROMPT}Write a concise and meaningful Git commit message based on the following changes:\n{}\n{AI_PROMPT}",
+        diff
+    );
+
+    let complete_request = CompleteRequestBuilder::default()
+        .prompt(prompt)
+        .model(MODEL_NAME.to_string())
+        .stream(false)
+        .stop_sequences(vec![HUMAN_PROMPT.to_string()])
+        .build()
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let complete_response = client
+        .complete(complete_request)
+        .await
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let commit_message = complete_response.completion.trim().to_string();
+
+    if commit_message.is_empty() {
+        Err(CommitauraError::ApiRequestFailed(
+            "Received empty commit message from LLM.".to_string(),
+        ))
+    } else {
+        info!("Generated commit message: {}", commit_message);
+        Ok(commit_message)
+    }
+}
+
+fn perform_git_commit(message: &str) -> Result<(), CommitauraError> {
+    let status = std::process::Command::new("git")
+        .args(&["commit", "-m", message])
+        .status()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CommitauraError::GitOperationFailed(
+            "Git commit failed".to_string(),
+        ))
+    }
+}
+
+async fn generate_readme_update(api_key: &str) -> Result<String, CommitauraError> {
+    let client = ClientBuilder::default()
+        .api_key(api_key.to_string())
+        .build()
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let diff_output = std::process::Command::new("git")
+        .args(&["diff", "--staged", "--name-only"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let files_changed = String::from_utf8(diff_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    if files_changed.trim().is_empty() {
+        return Err(CommitauraError::NoStagedChanges);
+    }
+
+    let prompt = format!(
+        "{HUMAN_PROMPT}Based on the following changes in the repository:\n{}\nProvide suggestions to update the README.md to reflect these changes.\n{AI_PROMPT}",
+        files_changed
+    );
+
+    let complete_request = CompleteRequestBuilder::default()
+        .prompt(prompt)
+        .model(MODEL_NAME.to_string())
+        .stream(false)
+        .stop_sequences(vec![HUMAN_PROMPT.to_string()])
+        .build()
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let complete_response = client
+        .complete(complete_request)
+        .await
+        .map_err(|e| CommitauraError::AnthropicError(e.to_string()))?;
+
+    let readme_updates = complete_response.completion.trim().to_string();
+
+    if readme_updates.is_empty() {
+        Err(CommitauraError::ApiRequestFailed(
+            "Received empty README update suggestions from LLM.".to_string(),
+        ))
+    } else {
+        info!("Generated README updates: {}", readme_updates);
+        Ok(readme_updates)
+    }
+}
+
+fn update_readme_file(updates: &str) -> Result<(), CommitauraError> {
+    let current_readme = fs::read_to_string("README.md").unwrap_or_default();
+    let updated_readme = format!("{}\n\n{}", current_readme, updates);
+    fs::write("README.md", updated_readme)?;
+    Ok(())
 }
