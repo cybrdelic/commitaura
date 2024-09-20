@@ -1,7 +1,7 @@
 # ====================
 # Rust/Cargo specific
 # ====================
-
+/target
 # Compiled binary artifacts
 /target/
 **/target/
