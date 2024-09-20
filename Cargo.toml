@@ -2,6 +2,10 @@
 name = "commitaura"
 version = "1.0.0"
 edition = "2021"
+description = "Intelligent Git commit assistant with README integration"
+license = "MIT"
+authors = ["Alex Figueroa <alexfigueroa.solutions@gmail.com>"]
+repository = "https://github.com/alexfigueroa-solutions/commitaura"
 
 [dependencies]
 openai_api_rust = "0.1.9"
