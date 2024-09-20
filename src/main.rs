@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand};
-use colored::*;
-use log::{error, info};
+use console::{style, Term};
+use dialoguer::{theme::ColorfulTheme, Confirm, Select};
+use indicatif::{ProgressBar, ProgressStyle};
+use log::info;
 use openai_api_rust::chat::*;
 use openai_api_rust::*;
-use std::fs;
+use std::{fs, time::Duration};
 use thiserror::Error;
 
 const MODEL_NAME: &str = "gpt-3.5-turbo";
@@ -12,21 +14,20 @@ const MODEL_NAME: &str = "gpt-3.5-turbo";
 enum CommitauraError {
     #[error("No staged changes detected")]
     NoStagedChanges,
-
     #[error("Git operation failed: {0}")]
     GitOperationFailed(String),
-
     #[error("API request failed: {0}")]
     ApiRequestFailed(String),
-
     #[error("Environment variable not set: {0}")]
     EnvVarNotSet(String),
-
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-
     #[error("OpenAI API error: {0}")]
     OpenAIError(String),
+    #[error("Template error: {0}")]
+    TemplateError(#[from] indicatif::style::TemplateError),
+    #[error("Dialoguer error: {0}")]
+    DialoguerError(#[from] dialoguer::Error),
 }
 
 #[derive(Parser)]
@@ -34,7 +35,7 @@ enum CommitauraError {
 #[command(about = "Intelligent Git Commit Assistant with README Integration", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -56,52 +57,132 @@ fn main() -> Result<(), CommitauraError> {
     let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
 
     let cli = Cli::parse();
+    let term = Term::stdout();
 
-    match cli.command {
-        Commands::Commit => {
-            println!("Generating commit message...");
-            match handle_commit(&openai) {
-                Ok(msg) => println!("Commit successful: {}", msg.green()),
-                Err(e) => eprintln!("Error: {}", e.to_string().red()),
+    term.clear_screen()?;
+    println!("{}", style("Welcome to Commitaura").bold().cyan());
+    println!("{}", style("Your Intelligent Git Assistant").italic());
+    println!();
+
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            let items = vec![
+                "Commit",
+                "Update README",
+                "Commit and Update README",
+                "Exit",
+            ];
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("What would you like to do?")
+                .items(&items)
+                .default(0)
+                .interact_on(&term)?;
+
+            match selection {
+                0 => Commands::Commit,
+                1 => Commands::UpdateReadme,
+                2 => Commands::CommitAndUpdate,
+                _ => return Ok(()),
             }
         }
-        Commands::UpdateReadme => {
-            println!("Updating README...");
-            match handle_update_readme(&openai) {
-                Ok(msg) => println!("README updated: {}", msg.green()),
-                Err(e) => eprintln!("Error: {}", e.to_string().red()),
-            }
-        }
+    };
+
+    match command {
+        Commands::Commit => handle_commit(&openai, &term)?,
+        Commands::UpdateReadme => handle_update_readme(&openai, &term)?,
         Commands::CommitAndUpdate => {
-            println!("Committing changes and updating README...");
-            match handle_commit(&openai) {
-                Ok(msg) => {
-                    println!("Commit successful: {}", msg.green());
-                    match handle_update_readme(&openai) {
-                        Ok(readme_msg) => println!("README updated: {}", readme_msg.green()),
-                        Err(e) => eprintln!("Error updating README: {}", e.to_string().red()),
-                    }
-                }
-                Err(e) => eprintln!("Error committing: {}", e.to_string().red()),
-            }
+            handle_commit(&openai, &term)?;
+            handle_update_readme(&openai, &term)?;
         }
+    }
+
+    println!();
+    println!(
+        "{}",
+        style("Thank you for using Commitaura!").green().bold()
+    );
+    Ok(())
+}
+
+fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
+    term.clear_screen()?;
+    println!("{}", style("Commit Changes").bold().underlined());
+    println!();
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{spinner:.blue} {msg}")?,
+    );
+
+    pb.set_message("Checking staged changes...");
+    check_staged_changes()?;
+
+    pb.set_message("Generating commit message...");
+    let commit_message = generate_commit_message(openai)?;
+
+    pb.finish_and_clear();
+
+    println!("Generated commit message:");
+    println!("{}", style(&commit_message).yellow());
+    println!();
+
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Do you want to proceed with this commit message?")
+        .default(true)
+        .interact()?
+    {
+        pb.set_message("Committing changes...");
+        pb.enable_steady_tick(Duration::from_millis(100));
+        perform_git_commit(&commit_message)?;
+        pb.finish_with_message("Commit successful!");
+    } else {
+        println!("{}", style("Commit cancelled.").red());
     }
 
     Ok(())
 }
 
-fn handle_commit(openai: &OpenAI) -> Result<String, CommitauraError> {
-    check_staged_changes()?;
-    let commit_message = generate_commit_message(openai)?;
-    perform_git_commit(&commit_message)?;
-    Ok(commit_message)
-}
+fn handle_update_readme(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
+    term.clear_screen()?;
+    println!("{}", style("Update README").bold().underlined());
+    println!();
 
-fn handle_update_readme(openai: &OpenAI) -> Result<String, CommitauraError> {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{spinner:.blue} {msg}")?,
+    );
+
+    pb.set_message("Checking staged changes...");
     check_staged_changes()?;
+
+    pb.set_message("Generating README updates...");
     let readme_update = generate_readme_update(openai)?;
-    update_readme_file(&readme_update)?;
-    Ok("README.md updated based on recent changes.".to_string())
+
+    pb.finish_and_clear();
+
+    println!("Suggested README updates:");
+    println!("{}", style(&readme_update).yellow());
+    println!();
+
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Do you want to apply these README updates?")
+        .default(true)
+        .interact()?
+    {
+        pb.set_message("Updating README...");
+        pb.enable_steady_tick(Duration::from_millis(100));
+        update_readme_file(&readme_update)?;
+        pb.finish_with_message("README updated successfully!");
+    } else {
+        println!("{}", style("README update cancelled.").red());
+    }
+
+    Ok(())
 }
 
 fn check_staged_changes() -> Result<(), CommitauraError> {
