@@ -1,0 +1,11 @@
+
+[package]
+name = "commitaura"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.28.1"
+tui = "0.19"
+clap = { version = "4.0", features = ["derive"] }
+colored = "2.0"
