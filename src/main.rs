@@ -7,7 +7,7 @@ use log::{error, info};
 use std::{env, fs};
 use thiserror::Error;
 
-const MODEL_NAME: &str = "claude-3-sonnet-20240229";
+const MODEL_NAME: &str = "claude-2.1";
 
 #[derive(Error, Debug)]
 enum CommitauraError {
@@ -163,7 +163,7 @@ async fn generate_commit_message(api_key: &str) -> Result<String, CommitauraErro
     }
 
     let prompt = format!(
-        "{HUMAN_PROMPT}Write a concise and meaningful Git commit message based on the following changes:\n{}\n{AI_PROMPT}",
+        "{HUMAN_PROMPT}Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message):\n{}\n{AI_PROMPT}",
         diff
     );
 
