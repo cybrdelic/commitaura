@@ -246,7 +246,7 @@ fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
             Message {
                 role: Role::User,
                 content: format!(
-                    "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message):\n{}",
+                    "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message). Be extremely specific. do not be vague:\n{}",
                     diff
                 ),
             },
