@@ -1,6 +1,6 @@
 [package]
 name = "commitaura"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 description = "Intelligent Git commit assistant with README integration"
 license = "MIT"
