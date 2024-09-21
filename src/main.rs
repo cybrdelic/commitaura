@@ -121,7 +121,7 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     pb.set_message("Checking staged changes...");
     check_staged_changes()?;
 
-    pb.set_message("Generating commit message...");
+    pb.set_message("Generating commit message from OpenAI...");
     let commit_message = generate_commit_message(openai)?;
 
     pb.finish_and_clear();
