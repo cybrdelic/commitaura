@@ -9,7 +9,7 @@ use pulldown_cmark::{html, Event, Parser as CmarkParser};
 use std::{fs, time::Duration};
 use thiserror::Error;
 
-const MODEL_NAME: &str = "gpt-3.5-turbo";
+const MODEL_NAME: &str = "gpt-4";
 
 #[derive(Error, Debug)]
 enum CommitauraError {
