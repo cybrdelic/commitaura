@@ -121,8 +121,20 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     pb.set_message("Checking staged changes...");
     check_staged_changes()?;
 
+    pb.set_message("Fetching recent commit messages...");
+    let last_commits = get_last_commit_messages()?;
+    pb.finish_and_clear();
+
+    display_commit_messages(&last_commits);
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{spinner:.blue} {msg}")?,
+    );
     pb.set_message("Generating commit message from OpenAI...");
-    let commit_message = generate_commit_message(openai)?;
+    let commit_message = generate_commit_message(openai, &last_commits)?;
 
     pb.finish_and_clear();
 
@@ -226,7 +238,7 @@ fn get_last_commit_messages() -> Result<String, CommitauraError> {
     String::from_utf8(output.stdout).map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))
 }
 
-fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
+fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String, CommitauraError> {
     let diff_output = std::process::Command::new("git")
         .args(&["diff", "--staged"])
         .output()
@@ -238,8 +250,6 @@ fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
     if diff.trim().is_empty() {
         return Err(CommitauraError::NoStagedChanges);
     }
-
-    let last_commits = get_last_commit_messages()?;
 
     let body = ChatBody {
         model: MODEL_NAME.to_string(),
@@ -386,13 +396,38 @@ fn select_updates(updates: &str, term: &Term) -> Result<String, CommitauraError>
 }
 
 fn merge_markdown_events<'a>(
-    mut current: Vec<Event<'a>>,
+    current: Vec<Event<'a>>,
     updates: Vec<Event<'a>>,
 ) -> Vec<Event<'a>> {
-    // This is a simplified merge function. You might need to implement a more sophisticated
-    // merging logic based on your specific README structure and update patterns.
-    current.extend(updates);
-    current
+    let mut merged = Vec::new();
+    let mut current_iter = current.into_iter().peekable();
+    let mut updates_iter = updates.into_iter().peekable();
+
+    while current_iter.peek().is_some() || updates_iter.peek().is_some() {
+        match (current_iter.peek(), updates_iter.peek()) {
+            (Some(_), None) => merged.push(current_iter.next().unwrap()),
+            (None, Some(_)) => merged.push(updates_iter.next().unwrap()),
+            (Some(c), Some(u)) => {
+                if c == u {
+                    merged.push(current_iter.next().unwrap());
+                    updates_iter.next();
+                } else {
+                    merged.push(updates_iter.next().unwrap());
+                }
+            }
+            (None, None) => unreachable!(),
+        }
+    }
+
+    merged
+}
+
+fn display_commit_messages(commits: &str) {
+    println!("{}", style("Recent Commit Messages:").bold().blue());
+    for (i, message) in commits.lines().enumerate() {
+        println!("{}. {}", i + 1, style(message).dim());
+    }
+    println!();
 }
 
 #[cfg(test)]
@@ -431,11 +466,12 @@ mod tests {
         let readme_path = temp_dir.path().join("README.md");
         fs::write(&readme_path, &mock_readme).unwrap();
 
-        // Update the README
-        update_readme_file(&mock_updates).unwrap();
-
-        // Read the updated README
-        let updated_readme = fs::read_to_string(&readme_path).unwrap();
+            // Update the README
+            fs::write(&readme_path, &mock_readme).unwrap();
+            update_readme_file(&mock_updates).unwrap();
+        
+            // Read the updated README
+            let updated_readme = fs::read_to_string(&readme_path).unwrap();
 
         // Check if the update was applied
         assert!(updated_readme.contains("# Test README"));
