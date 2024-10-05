@@ -217,6 +217,15 @@ fn perform_git_commit(message: &str) -> Result<(), CommitauraError> {
     }
 }
 
+fn get_last_commit_messages() -> Result<String, CommitauraError> {
+    let output = std::process::Command::new("git")
+        .args(&["log", "-5", "--pretty=format:%s"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    String::from_utf8(output.stdout).map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))
+}
+
 fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
     let diff_output = std::process::Command::new("git")
         .args(&["diff", "--staged"])
@@ -229,6 +238,8 @@ fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
     if diff.trim().is_empty() {
         return Err(CommitauraError::NoStagedChanges);
     }
+
+    let last_commits = get_last_commit_messages()?;
 
     let body = ChatBody {
         model: MODEL_NAME.to_string(),
@@ -250,8 +261,8 @@ fn generate_commit_message(openai: &OpenAI) -> Result<String, CommitauraError> {
             Message {
                 role: Role::User,
                 content: format!(
-                    "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message). Be extremely specific. do not be vague:\n{}",
-                    diff
+                    "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message). Be extremely specific. Do not be vague. Consider the context of the last 5 commit messages:\n\nLast 5 commit messages:\n{}\n\nCurrent changes:\n{}",
+                    last_commits, diff
                 ),
             },
         ],
