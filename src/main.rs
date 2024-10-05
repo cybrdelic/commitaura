@@ -1,13 +1,11 @@
 use clap::{Parser, Subcommand};
 use colored::*;
 use console::{style, Term};
-use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use openai_api_rust::chat::*;
 use openai_api_rust::*;
-use pulldown_cmark::{html, Event, Parser as CmarkParser};
-use std::fs;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -91,7 +89,7 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     pb.finish_and_clear();
 
     println!("Generated commit message:");
-    println!("{}", commit_message);
+    println!("{}", style(&commit_message).green().bold());
     println!();
 
     if Confirm::with_theme(&ColorfulTheme::default())
@@ -105,49 +103,6 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
         pb.finish_with_message("Commit successful!");
     } else {
         println!("Commit cancelled.");
-    }
-
-    Ok(())
-}
-
-fn handle_update_readme(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
-    term.clear_screen()?;
-    println!("{}", style("Update README").bold().underlined());
-    println!();
-
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-            .template("{spinner:.blue} {msg}")?,
-    );
-
-    pb.set_message("Checking staged changes...");
-    check_staged_changes()?;
-
-    pb.set_message("Generating README updates...");
-    let readme_updates = generate_readme_update(openai)?;
-
-    pb.finish_and_clear();
-
-    println!("Suggested README updates:");
-    println!("{}", style(&readme_updates).yellow());
-    println!();
-
-    let update_options = vec!["Apply all updates", "Select updates to apply", "Cancel"];
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("How would you like to proceed?")
-        .items(&update_options)
-        .default(0)
-        .interact_on(term)?;
-
-    match selection {
-        0 => update_readme_file(&readme_updates)?,
-        1 => {
-            let selected_updates = select_updates(&readme_updates, term)?;
-            update_readme_file(&selected_updates)?;
-        }
-        _ => println!("{}", style("README update cancelled.").red()),
     }
 
     Ok(())
@@ -251,130 +206,6 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
         info!("Generated commit message: {}", commit_message);
         Ok(commit_message)
     }
-}
-
-fn generate_readme_update(openai: &OpenAI) -> Result<String, CommitauraError> {
-    let diff_output = std::process::Command::new("git")
-        .args(&["diff", "--staged"])
-        .output()
-        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
-
-    let diff = String::from_utf8(diff_output.stdout)
-        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
-
-    if diff.trim().is_empty() {
-        return Err(CommitauraError::NoStagedChanges);
-    }
-
-    let current_readme = fs::read_to_string("README.md").unwrap_or_default();
-
-    let body = ChatBody {
-        model: MODEL_NAME.to_string(),
-        max_tokens: Some(500),
-        temperature: Some(0.7),
-        top_p: Some(1.0),
-        n: Some(1),
-        stream: Some(false),
-        stop: None,
-        presence_penalty: None,
-        frequency_penalty: None,
-        logit_bias: None,
-        user: None,
-        messages: vec![
-            Message {
-                role: Role::System,
-                content: "You are a helpful assistant that suggests updates for README files based on changes in a Git repository.".to_string(),
-            },
-            Message {
-                role: Role::User,
-                content: format!(
-                    "Based on the following changes in the repository:\n{}\n\nAnd the current README content:\n{}\n\nProvide suggestions to update the README.md to reflect these changes. Return only the new or modified sections of the README, not the entire file. Format your response as a series of numbered update suggestions.",
-                    diff, current_readme
-                ),
-            },
-        ],
-    };
-
-    let rs = openai
-        .chat_completion_create(&body)
-        .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
-
-    let choice = rs.choices;
-    let message = &choice[0]
-        .message
-        .as_ref()
-        .ok_or(CommitauraError::ApiRequestFailed(
-            "No message in API response".to_string(),
-        ))?;
-    let readme_updates = message.content.trim().to_string();
-
-    if readme_updates.is_empty() {
-        Err(CommitauraError::ApiRequestFailed(
-            "Received empty README update suggestions from LLM.".to_string(),
-        ))
-    } else {
-        info!("Generated README updates: {}", readme_updates);
-        Ok(readme_updates)
-    }
-}
-
-fn update_readme_file(updates: &str) -> Result<(), CommitauraError> {
-    let current_readme = fs::read_to_string("README.md").unwrap_or_default();
-
-    // Parse the current README
-    let current_events: Vec<Event> = CmarkParser::new(&current_readme).collect();
-
-    // Parse the updates
-    let update_events: Vec<Event> = CmarkParser::new(updates).collect();
-
-    // Merge the events
-    let merged_events = merge_markdown_events(current_events, update_events);
-
-    // Convert the merged events back to markdown
-    let mut merged_markdown = String::new();
-    html::push_html(&mut merged_markdown, merged_events.into_iter());
-
-    fs::write("README.md", merged_markdown)?;
-    Ok(())
-}
-fn select_updates(updates: &str, term: &Term) -> Result<String, CommitauraError> {
-    let update_lines: Vec<&str> = updates.lines().collect();
-    let selections = MultiSelect::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select the updates to apply")
-        .items(&update_lines)
-        .interact_on(term)?;
-
-    let selected_updates: String = selections
-        .into_iter()
-        .map(|i| update_lines[i])
-        .collect::<Vec<&str>>()
-        .join("\n");
-
-    Ok(selected_updates)
-}
-
-fn merge_markdown_events<'a>(current: Vec<Event<'a>>, updates: Vec<Event<'a>>) -> Vec<Event<'a>> {
-    let mut merged = Vec::new();
-    let mut current_iter = current.into_iter().peekable();
-    let mut updates_iter = updates.into_iter().peekable();
-
-    while current_iter.peek().is_some() || updates_iter.peek().is_some() {
-        match (current_iter.peek(), updates_iter.peek()) {
-            (Some(_), None) => merged.push(current_iter.next().unwrap()),
-            (None, Some(_)) => merged.push(updates_iter.next().unwrap()),
-            (Some(c), Some(u)) => {
-                if c == u {
-                    merged.push(current_iter.next().unwrap());
-                    updates_iter.next();
-                } else {
-                    merged.push(updates_iter.next().unwrap());
-                }
-            }
-            (None, None) => unreachable!(),
-        }
-    }
-
-    merged
 }
 
 fn display_commit_messages(commits: &str) {
