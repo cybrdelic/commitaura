@@ -46,8 +46,6 @@ struct Cli {
 enum Commands {
     /// Automatically generate commit message and commit
     Commit,
-    /// Update README file
-    UpdateReadme,
 }
 
 fn main() -> Result<(), CommitauraError> {
@@ -68,7 +66,6 @@ fn main() -> Result<(), CommitauraError> {
 
     match cli.command {
         Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
-        Some(Commands::UpdateReadme) => handle_update_readme(&openai, &term)?,
     }
 
     println!();
