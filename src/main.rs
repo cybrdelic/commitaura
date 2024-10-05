@@ -60,31 +60,9 @@ fn main() -> Result<(), CommitauraError> {
     let cli = Cli::parse();
     let term = Term::stdout();
 
-    term.clear_screen()?;
-    println!("{}", "🌟 Welcome to".bold().bright_cyan());
-    println!("{}", "   COMMITAURA   ".bold().on_bright_cyan().black());
-    println!(
-        "{}",
-        "Your Intelligent Git Assistant".italic().bright_cyan()
-    );
-    println!();
-    println!(
-        "{}",
-        "Empowering your commits with AI magic ✨".bright_yellow()
-    );
-    println!();
-
     match cli.command {
         Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
     }
-
-    println!();
-    println!("{}", "Thank you for using".bright_green());
-    println!("{}", "   COMMITAURA   ".bold().on_bright_green().black());
-    println!(
-        "{}",
-        "Come back soon for more AI-powered commits! 👋".bright_green()
-    );
     Ok(())
 }
 
@@ -94,11 +72,7 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     println!();
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg}")?,
-    );
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
 
     pb.set_message("Checking staged changes...");
     check_staged_changes()?;
@@ -110,20 +84,14 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     display_commit_messages(&last_commits);
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-            .template("{spinner:.blue} {msg}")?,
-    );
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
     pb.set_message("Generating commit message from OpenAI...");
     let commit_message = generate_commit_message(openai, &last_commits)?;
 
     pb.finish_and_clear();
 
-    println!("{}", "✨ Generated commit message:".bold().bright_green());
-    println!("{}", "─".repeat(40).bright_green());
-    println!("{}", commit_message.bright_yellow());
-    println!("{}", "─".repeat(40).bright_green());
+    println!("Generated commit message:");
+    println!("{}", commit_message);
     println!();
 
     if Confirm::with_theme(&ColorfulTheme::default())
@@ -131,12 +99,12 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
         .default(true)
         .interact()?
     {
-        pb.set_message("Committing changes...".bright_cyan().to_string());
+        pb.set_message("Committing changes...");
         pb.enable_steady_tick(Duration::from_millis(100));
         perform_git_commit(&commit_message)?;
-        pb.finish_with_message("🎉 Commit successful!".bold().bright_green().to_string());
+        pb.finish_with_message("Commit successful!");
     } else {
-        println!("{}", "Commit cancelled.".bold().bright_red());
+        println!("Commit cancelled.");
     }
 
     Ok(())
