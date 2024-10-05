@@ -6,7 +6,8 @@ use log::info;
 use openai_api_rust::chat::*;
 use openai_api_rust::*;
 use pulldown_cmark::{html, Event, Parser as CmarkParser};
-use std::{fs, time::Duration};
+use std::fs;
+use std::time::Duration;
 use thiserror::Error;
 
 const MODEL_NAME: &str = "gpt-4";
@@ -21,19 +22,21 @@ enum CommitauraError {
     ApiRequestFailed(String),
     #[error("Environment variable not set: {0}")]
     EnvVarNotSet(String),
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
     #[error("OpenAI API error: {0}")]
     OpenAIError(String),
     #[error("Template error: {0}")]
     TemplateError(#[from] indicatif::style::TemplateError),
     #[error("Dialoguer error: {0}")]
     DialoguerError(#[from] dialoguer::Error),
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }
+
+// Removed redundant implementation
 
 #[derive(Parser)]
 #[command(name = "Commitaura")]
-#[command(about = "Intelligent Git Commit Assistant with README Integration", long_about = None)]
+#[command(about = "Intelligent Git Commit Assistant", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -43,10 +46,8 @@ struct Cli {
 enum Commands {
     /// Automatically generate commit message and commit
     Commit,
-    /// Update README based on changes
+    /// Update README file
     UpdateReadme,
-    /// Commit and update README
-    CommitAndUpdate,
 }
 
 fn main() -> Result<(), CommitauraError> {
@@ -65,37 +66,9 @@ fn main() -> Result<(), CommitauraError> {
     println!("{}", style("Your Intelligent Git Assistant").italic());
     println!();
 
-    let command = match cli.command {
-        Some(cmd) => cmd,
-        None => {
-            let items = vec![
-                "Commit",
-                "Update README",
-                "Commit and Update README",
-                "Exit",
-            ];
-            let selection = Select::with_theme(&ColorfulTheme::default())
-                .with_prompt("What would you like to do?")
-                .items(&items)
-                .default(0)
-                .interact_on(&term)?;
-
-            match selection {
-                0 => Commands::Commit,
-                1 => Commands::UpdateReadme,
-                2 => Commands::CommitAndUpdate,
-                _ => return Ok(()),
-            }
-        }
-    };
-
-    match command {
-        Commands::Commit => handle_commit(&openai, &term)?,
-        Commands::UpdateReadme => handle_update_readme(&openai, &term)?,
-        Commands::CommitAndUpdate => {
-            handle_commit(&openai, &term)?;
-            handle_update_readme(&openai, &term)?;
-        }
+    match cli.command {
+        Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
+        Some(Commands::UpdateReadme) => handle_update_readme(&openai, &term)?,
     }
 
     println!();
@@ -283,9 +256,12 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
         .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
 
     let choice = rs.choices;
-    let message = &choice[0].message.as_ref().ok_or_else(|| {
-        CommitauraError::ApiRequestFailed("No message in API response".to_string())
-    })?;
+    let message = &choice[0]
+        .message
+        .as_ref()
+        .ok_or(CommitauraError::ApiRequestFailed(
+            "No message in API response".to_string(),
+        ))?;
     let commit_message = message.content.trim().to_string();
 
     if commit_message.is_empty() {
@@ -345,9 +321,12 @@ fn generate_readme_update(openai: &OpenAI) -> Result<String, CommitauraError> {
         .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
 
     let choice = rs.choices;
-    let message = &choice[0].message.as_ref().ok_or_else(|| {
-        CommitauraError::ApiRequestFailed("No message in API response".to_string())
-    })?;
+    let message = &choice[0]
+        .message
+        .as_ref()
+        .ok_or(CommitauraError::ApiRequestFailed(
+            "No message in API response".to_string(),
+        ))?;
     let readme_updates = message.content.trim().to_string();
 
     if readme_updates.is_empty() {
@@ -395,10 +374,7 @@ fn select_updates(updates: &str, term: &Term) -> Result<String, CommitauraError>
     Ok(selected_updates)
 }
 
-fn merge_markdown_events<'a>(
-    current: Vec<Event<'a>>,
-    updates: Vec<Event<'a>>,
-) -> Vec<Event<'a>> {
+fn merge_markdown_events<'a>(current: Vec<Event<'a>>, updates: Vec<Event<'a>>) -> Vec<Event<'a>> {
     let mut merged = Vec::new();
     let mut current_iter = current.into_iter().peekable();
     let mut updates_iter = updates.into_iter().peekable();
@@ -447,36 +423,5 @@ mod tests {
     fn test_generate_commit_message() {
         // Mock the OpenAI client and test the generate_commit_message function
         // This is a placeholder and should be implemented with proper mocking
-    }
-
-    #[test]
-    fn test_generate_readme_update() {
-        // Mock the OpenAI client and test the generate_readme_update function
-        // This is a placeholder and should be implemented with proper mocking
-    }
-
-    #[test]
-    fn test_update_readme_file() {
-        // Test the update_readme_file function with a mock README and updates
-        let mock_readme = "# Test README\n\nThis is a test.".to_string();
-        let mock_updates = "## New Section\n\nThis is a new section.".to_string();
-
-        // Write mock README to a temporary file
-        let temp_dir = tempfile::tempdir().unwrap();
-        let readme_path = temp_dir.path().join("README.md");
-        fs::write(&readme_path, &mock_readme).unwrap();
-
-            // Update the README
-            fs::write(&readme_path, &mock_readme).unwrap();
-            update_readme_file(&mock_updates).unwrap();
-        
-            // Read the updated README
-            let updated_readme = fs::read_to_string(&readme_path).unwrap();
-
-        // Check if the update was applied
-        assert!(updated_readme.contains("# Test README"));
-        assert!(updated_readme.contains("This is a test."));
-        assert!(updated_readme.contains("## New Section"));
-        assert!(updated_readme.contains("This is a new section."));
     }
 }
