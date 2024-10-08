@@ -8,12 +8,15 @@ use openai_api_rust::chat::*;
 use openai_api_rust::*;
 use std::time::Duration;
 use thiserror::Error;
+use tiktoken_rs::p50k_base;
 
 const MODEL_NAME: &str = "gpt-4o";
 const MAX_TOKENS: usize = 128000; // Adjust this based on the model's actual limit
 
 #[derive(Error, Debug)]
 enum CommitauraError {
+    #[error("Tokenizer error: {0}")]
+    TokenizerError(String),
     #[error("No staged changes detected")]
     NoStagedChanges,
     #[error("Git operation failed: {0}")]
@@ -167,14 +170,19 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
         last_commits
     );
 
-    let estimated_tokens =
-        estimate_tokens(system_message) + estimate_tokens(&prompt) + estimate_tokens(&diff);
+    let system_tokens = estimate_tokens(system_message)?;
+    let prompt_tokens = estimate_tokens(&prompt)?;
+    let diff_tokens = estimate_tokens(&diff)?;
+    let estimated_tokens = system_tokens + prompt_tokens + diff_tokens;
 
     if estimated_tokens > MAX_TOKENS {
-        let available_tokens =
-            MAX_TOKENS - estimate_tokens(system_message) - estimate_tokens(&prompt);
-        diff = diff.chars().take(available_tokens).collect();
-        println!("Warning: Diff was truncated due to token limit.");
+        let available_tokens = MAX_TOKENS - system_tokens - prompt_tokens;
+        let bpe = p50k_base().map_err(|e| CommitauraError::TokenizerError(e.to_string()))?;
+        let tokens = bpe.encode_with_special_tokens(&diff);
+        let truncated_tokens = tokens[..available_tokens].to_vec();
+        diff = bpe
+            .decode(truncated_tokens)
+            .map_err(|e| CommitauraError::TokenizerError(e.to_string()))?;
     }
 
     let body = ChatBody {
@@ -227,9 +235,10 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
     }
 }
 
-fn estimate_tokens(text: &str) -> usize {
-    // This is a very rough estimate. For more accurate results, use a proper tokenizer.
-    text.split_whitespace().count()
+fn estimate_tokens(text: &str) -> Result<usize, CommitauraError> {
+    let bpe = p50k_base().map_err(|e| CommitauraError::TokenizerError(e.to_string()))?;
+    let tokens = bpe.encode_with_special_tokens(text);
+    Ok(tokens.len())
 }
 
 fn display_commit_messages(commits: &str) {
