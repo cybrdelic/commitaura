@@ -10,6 +10,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 const MODEL_NAME: &str = "gpt-4o";
+const MAX_TOKENS: usize = 128000; // Adjust this based on the model's actual limit
 
 #[derive(Error, Debug)]
 enum CommitauraError {
@@ -151,11 +152,29 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
         .output()
         .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
 
-    let diff = String::from_utf8(diff_output.stdout)
+    let mut diff = String::from_utf8(diff_output.stdout)
         .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
 
     if diff.trim().is_empty() {
         return Err(CommitauraError::NoStagedChanges);
+    }
+
+    // Estimate tokens and truncate if necessary
+    let system_message =
+        "You are a helpful assistant that generates concise and meaningful Git commit messages.";
+    let prompt = format!(
+        "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message). Do not use the same word at the beginning of every commit message. Be extremely specific. Do not be vague. Consider the context of the last 5 commit messages:\n\nLast 5 commit messages:\n{}\n\nCurrent changes:\n",
+        last_commits
+    );
+
+    let estimated_tokens =
+        estimate_tokens(system_message) + estimate_tokens(&prompt) + estimate_tokens(&diff);
+
+    if estimated_tokens > MAX_TOKENS {
+        let available_tokens =
+            MAX_TOKENS - estimate_tokens(system_message) - estimate_tokens(&prompt);
+        diff = diff.chars().take(available_tokens).collect();
+        println!("Warning: Diff was truncated due to token limit.");
     }
 
     let body = ChatBody {
@@ -206,6 +225,11 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
         info!("Generated commit message: {}", commit_message);
         Ok(commit_message)
     }
+}
+
+fn estimate_tokens(text: &str) -> usize {
+    // This is a very rough estimate. For more accurate results, use a proper tokenizer.
+    text.split_whitespace().count()
 }
 
 fn display_commit_messages(commits: &str) {
