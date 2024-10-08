@@ -9,7 +9,7 @@ use openai_api_rust::*;
 use std::time::Duration;
 use thiserror::Error;
 
-const MODEL_NAME: &str = "gpt-4";
+const MODEL_NAME: &str = "gpt-4o";
 
 #[derive(Error, Debug)]
 enum CommitauraError {
