@@ -94,7 +94,6 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     let commit_message = generate_commit_message(openai, &last_commits)?;
 
     pb.finish_and_clear();
-
     println!("Generated commit message:");
     println!("{}", style(&commit_message).green().bold());
     println!();
