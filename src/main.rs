@@ -49,6 +49,8 @@ struct Cli {
 enum Commands {
     /// Automatically generate commit message and commit
     Commit,
+    /// Push changes to a new branch and create a PR
+    Push,
 }
 
 fn main() -> Result<(), CommitauraError> {
@@ -64,6 +66,7 @@ fn main() -> Result<(), CommitauraError> {
 
     match cli.command {
         Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
+        Some(Commands::Push) => handle_push(&openai, &term)?,
     }
     Ok(())
 }
@@ -253,6 +256,153 @@ fn display_commit_messages(commits: &str) {
     }
     println!("{}", "─".repeat(40).bright_blue());
     println!();
+}
+
+fn handle_push(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
+    term.clear_screen()?;
+    println!(
+        "{}",
+        style("Push Changes to New Branch").bold().underlined()
+    );
+    println!();
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
+
+    pb.set_message("Checking current branch...");
+    check_master_branch()?;
+
+    pb.set_message("Checking for unpushed commits...");
+    let unpushed_commits = get_unpushed_commits()?;
+    if unpushed_commits.is_empty() {
+        return Err(CommitauraError::GitOperationFailed(
+            "No unpushed commits found".to_string(),
+        ));
+    }
+
+    pb.set_message("Generating branch name and PR description...");
+    let (branch_name, pr_description) = generate_branch_and_pr(openai, &unpushed_commits)?;
+
+    pb.set_message(format!("Creating new branch: {}", &branch_name));
+    create_and_push_branch(&branch_name)?;
+
+    pb.set_message("Creating pull request...");
+    create_pull_request(&branch_name, &pr_description)?;
+
+    pb.finish_with_message("Push and PR creation successful!");
+
+    Ok(())
+}
+
+fn check_master_branch() -> Result<(), CommitauraError> {
+    let output = std::process::Command::new("git")
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let current_branch = String::from_utf8(output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .trim()
+        .to_string();
+
+    if current_branch != "master" && current_branch != "main" {
+        return Err(CommitauraError::GitOperationFailed(
+            "Not on master/main branch".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn get_unpushed_commits() -> Result<String, CommitauraError> {
+    let output = std::process::Command::new("git")
+        .args(&["log", "@{u}..", "--pretty=format:%s"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    String::from_utf8(output.stdout).map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))
+}
+
+fn generate_branch_and_pr(
+    openai: &OpenAI,
+    unpushed_commits: &str,
+) -> Result<(String, String), CommitauraError> {
+    let prompt = format!(
+        "Based on the following unpushed commits, generate a concise branch name (max 50 characters) and a pull request description:\n\n{}",
+        unpushed_commits
+    );
+
+    let body = ChatBody {
+        model: MODEL_NAME.to_string(),
+        max_tokens: Some(200),
+        temperature: Some(0.7),
+        top_p: Some(1.0),
+        n: Some(1),
+        stream: Some(false),
+        stop: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        logit_bias: None,
+        user: None,
+        messages: vec![
+            Message {
+                role: Role::System,
+                content: "You are a helpful assistant that generates branch names and PR descriptions based on commit messages.".to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: prompt,
+            },
+        ],
+    };
+
+    let rs = openai
+        .chat_completion_create(&body)
+        .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
+
+    let choice = rs.choices;
+    let message = &choice[0]
+        .message
+        .as_ref()
+        .ok_or(CommitauraError::ApiRequestFailed(
+            "No message in API response".to_string(),
+        ))?;
+
+    let content = message.content.trim();
+    let mut lines = content.lines();
+    let branch_name = lines
+        .next()
+        .ok_or(CommitauraError::ApiRequestFailed(
+            "No branch name generated".to_string(),
+        ))?
+        .trim()
+        .to_string();
+    let pr_description = lines.collect::<Vec<&str>>().join("\n");
+
+    Ok((branch_name, pr_description))
+}
+
+fn create_and_push_branch(branch_name: &str) -> Result<(), CommitauraError> {
+    std::process::Command::new("git")
+        .args(&["checkout", "-b", branch_name])
+        .status()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    std::process::Command::new("git")
+        .args(&["push", "-u", "origin", branch_name])
+        .status()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    Ok(())
+}
+
+fn create_pull_request(branch_name: &str, pr_description: &str) -> Result<(), CommitauraError> {
+    // This function is a placeholder and should be implemented using a GitHub API client
+    // For now, we'll just print the information
+    println!("Creating PR for branch: {}", branch_name);
+    println!("PR Description:\n{}", pr_description);
+    println!("Please create the PR manually on GitHub for now.");
+    Ok(())
 }
 
 #[cfg(test)]
