@@ -6,6 +6,7 @@
 /target/
 **/target/
 target/**/
+ai_responses/
 
 # Remove Cargo.lock from binaries
 **/Cargo.lock
@@ -104,3 +105,4 @@ temp/
 # Backup files
 *.bak
 *.backup
+index_cache.json

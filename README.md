@@ -1,174 +1,56 @@
-# Commitaura
+# commitaura
 
-**An Intelligent Git Commit Assistant with README Integration**
+commitaura is an intelligent Git commit assistant. It helps you generate high-quality commit messages using OpenAI's GPT-4o model. That's it. I kept it simple.
 
-Commitaura enhances your Git workflow by generating concise, meaningful commit messages and suggesting updates to your README based on staged changes. Leveraging OpenAI's GPT models, it provides context-aware suggestions that save time and improve documentation quality.
+## Description
 
-## Table of Contents
-
-- [Features](#features)
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Using Cargo (Recommended)](#using-cargo-recommended)
-  - [Building from Source](#building-from-source)
-- [Usage](#usage)
-  - [Commands](#commands)
-  - [Examples](#examples)
-- [Configuration](#configuration)
-- [Contributing](#contributing)
-- [License](#license)
-- [Contact](#contact)
-
-## Features
-
-- **Automated Commit Messages**: Generates detailed commit messages based on your staged changes.
-- **README Updates**: Suggests modifications to your README.md to reflect recent changes.
-- **Interactive CLI**: Offers an intuitive command-line interface with prompts and selections.
-- **Flexible Operations**: Choose to commit changes, update the README, or both simultaneously.
+commitaura is a command-line tool written in Rust that leverages the OpenAI API to generate commit messages based on the changes you've made to your codebase. It analyzes the changes and the past 5 commits, then generates a clear and concise commit message using OpenAI's language model.
 
 ## Installation
 
-### Prerequisites
+You can install commitaura via Cargo, the Rust package manager:
 
-- **Rust and Cargo**: Ensure you have Rust and Cargo installed. Install them via [rustup.rs](https://rustup.rs/).
-- **OpenAI API Key**: You'll need a valid OpenAI API key to use Commitaura.
-
-### Using Cargo (Recommended)
-
-Install Commitaura directly using Cargo:
-
-```bash
+```
 cargo install commitaura
 ```
 
-*Note: If Commitaura is not yet published on [crates.io](https://crates.io/), you can install it from the Git repository:*
+## Setting up the OpenAI API Key
+
+commitaura requires an OpenAI API key to function. You can set it up by adding the API key to your shell profile (e.g., `~/.zshrc`):
 
 ```bash
-cargo install --git https://github.com/alexfigueroa-solutions/commitaura.git
+echo "export OPENAI_API_KEY=your-api-key-here" >> ~/.zshrc
 ```
 
-This command compiles the project and installs the `commitaura` binary to Cargo's bin directory, which is typically included in your system's PATH (`~/.cargo/bin`).
+Replace `your-api-key-here` with your actual OpenAI API key. After adding the line to your `.zshrc` file, restart your terminal or run `source ~/.zshrc` to apply the changes.
 
-### Building from Source
+Alternatively, you can create a `.env` file in your project's root directory with the following content:
 
-If you prefer to build Commitaura from the source code:
+```
+OPENAI_API_KEY=your-api-key-here
+```
 
-1. **Clone the Repository**
-
-   ```bash
-   git clone https://github.com/alexfigueroa-solutions/commitaura.git
-   ```
-
-2. **Navigate to the Project Directory**
-
-   ```bash
-   cd commitaura
-   ```
-
-3. **Build and Install the Project**
-
-   Use Cargo to build and install the project:
-
-   ```bash
-   cargo install --path .
-   ```
-
-   This command compiles the project and installs the `commitaura` binary to Cargo's bin directory.
-
-### Setting Up the OpenAI API Key
-
-Commitaura requires an OpenAI API key to function. You can set it up using one of the following methods:
-
-- **Environment Variable**
-
-  Add the API key to your shell profile (e.g., `~/.bashrc`, `~/.zshrc`):
-
-  ```bash
-  export OPENAI_API_KEY=your-api-key-here
-  ```
-
-- **.env File**
-
-  In your home directory or project root, create a `.env` file:
-
-  ```bash
-  echo "OPENAI_API_KEY=your-api-key-here" > ~/.commitaura.env
-  ```
-
-  Commitaura will automatically load the API key from this file.
+commitaura will automatically load the API key from this file.
 
 ## Usage
 
-Commitaura provides several commands to streamline your Git operations.
+After installation and setting up the OpenAI API key, you can run commitaura from the command line within your Git repository:
 
-### Commands
-
-- `commit`: Automatically generate a commit message and commit staged changes.
-- `update-readme`: Generate suggestions to update your README.md based on staged changes.
-- `commit-and-update`: Perform a commit and update the README in one step.
-
-### Examples
-
-#### Commit Changes with an Auto-Generated Message
-
-```bash
-commitaura commit
+```
+commitaura
 ```
 
-- Analyzes staged changes.
-- Generates a commit message using OpenAI's GPT model.
-- Prompts for confirmation before committing.
+commitaura will guide you through the process of generating a commit message and updating your README file.
 
-#### Update README Based on Changes
+## Features
 
-```bash
-commitaura update-readme
-```
-
-- Analyzes staged changes and the current README.md.
-- Suggests updates to the README.
-- Allows selection of specific updates to apply.
-
-#### Commit and Update README Together
-
-```bash
-commitaura commit-and-update
-```
-
-- Combines the functionalities of `commit` and `update-readme`.
-
-## Configuration
-
-Commitaura relies on an OpenAI API key for generating messages.
-
-- **Environment Variable**
-
-  Add the API key to your shell profile:
-
-  ```bash
-  export OPENAI_API_KEY=your-api-key-here
-  ```
-
-- **.env File**
-
-  Create a `.env` file in your home directory or project root:
-
-  ```bash
-  echo "OPENAI_API_KEY=your-api-key-here" > ~/.commitaura.env
-  ```
-
-  Commitaura will automatically load the API key from this file.
+- **Intelligent commit message generation**: commitaura uses the OpenAI API to generate clear and concise commit messages based on the changes you've made to your codebase.
+- **Cross-platform**: commitaura is a command-line tool written in Rust, so it can be used on any platform that supports Rust.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request on [GitHub](https://github.com/alexfigueroa-solutions/commitaura).
+Contributions to commitaura are welcome! If you find a bug or have a feature request, please open an issue on the GitHub repository. If you'd like to contribute code, please fork the repository and submit a pull request.
 
 ## License
 
-This project is licensed under the MIT License.
-
-## Contact
-
-Developed by Alex Figueroa.
-
-- **Email**: [alexfigueroa.solutions@gmail.com](mailto:alexfigueroa.solutions@gmail.com)
+commitaura is released under the [MIT License](https://opensource.org/licenses/MIT).
