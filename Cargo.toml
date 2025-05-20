@@ -9,7 +9,6 @@ repository = "https://github.com/alexfigueroa-solutions/commitaura"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
-pulldown-cmark = "0.12.1"
 console = "0.15"
 dialoguer = "0.11.0"
 indicatif = "0.17"
@@ -18,9 +17,7 @@ openai_api_rust = "0.1.8"
 thiserror = "1.0"
 dotenv = "0.15"
 env_logger = "0.11.5"
-markdown = "0.3"
 colored = "2.0"
 tiktoken-rs = "0.5.9"
 
 [dev-dependencies]
-tempfile = "3.2"
