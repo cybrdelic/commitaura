@@ -1,9 +1,4 @@
 <!-- filepath: c:\Users\alexf\software-projects\commitaura\README.md -->
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/alexfigueroa-solutions/commitaura/main/assets/logo.png" alt="Commitaura Logo" width="120" />
-</p>
-
 <h1 align="center">Commitaura</h1>
 
 <p align="center">
@@ -96,6 +91,24 @@ OPENAI_API_KEY=sk-...
 3. **Build the Project**
 ```sh
 cargo build --release
+```
+
+### Setting the OpenAI API Key Globally
+
+You can set your OpenAI API key as a global environment variable so it is available in all terminal sessions:
+
+**On Windows PowerShell:**
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "sk-...", "User")
+```
+This will persist the key for your user account. Restart your terminal for changes to take effect.
+
+**On Linux/macOS (bash/zsh):**
+```sh
+echo 'export OPENAI_API_KEY=sk-...' >> ~/.bashrc
+# or for zsh
+echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc
+source ~/.bashrc  # or source ~/.zshrc
 ```
 
 ---
