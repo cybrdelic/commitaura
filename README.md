@@ -150,6 +150,45 @@ Do you want to proceed with this commit message? [Y/n]:
 
 ---
 
+## 🚀 Release Automation & Versioning
+
+Commitaura uses [cargo-release](https://github.com/crate-ci/cargo-release) to automate versioning, changelog generation, and publishing.
+
+### How to Release a New Version
+
+1. **Install cargo-release** (one-time):
+   ```sh
+   cargo install cargo-release
+   ```
+2. **Release a new version:**
+   - For a patch release:
+     ```sh
+     cargo release patch
+     ```
+   - For a minor release:
+     ```sh
+     cargo release minor
+     ```
+   - For a major release:
+     ```sh
+     cargo release major
+     ```
+   This will:
+   - Bump the version in `Cargo.toml` and `Cargo.lock`
+   - Generate or update `CHANGELOG.md`
+   - Commit and tag the release
+   - Push the tag to GitHub
+   - Optionally publish to crates.io (if you confirm)
+3. **GitHub Actions Release Automation:**
+   - When you push a tag (e.g., `v1.2.3`), GitHub Actions will:
+     - Build the release binary
+     - Upload it as a GitHub Release asset
+     - Publish to crates.io (if configured)
+
+See [RELEASING.md](RELEASING.md) for more details and examples.
+
+---
+
 ## 🧩 Design and Implementation
 
 Commitaura is written in Rust for its safety, speed, and excellent ecosystem. The project uses the following crates:
