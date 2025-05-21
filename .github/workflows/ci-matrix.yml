@@ -2,9 +2,9 @@ name: CI Matrix
 
 on:
   push:
-    branches: [ main ]
+    branches: ["**"]
   pull_request:
-    branches: [ main ]
+    branches: ["**"]
 
 jobs:
   test-matrix:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Rust
-        uses: actions/setup-rust@v1
+        uses: actions/setup-rust@v1.7.0
         with:
           rust-version: stable
       - name: Build
