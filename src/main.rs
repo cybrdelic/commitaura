@@ -70,15 +70,14 @@ fn main() -> Result<(), CommitauraError> {
 
 fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     term.clear_screen()?;
-    println!("{}", style("Commit Changes").bold().underlined());
-    println!();
+    println!("{} {}\n", "🚀".bold().bright_cyan(), style("Commitaura: Commit Assistant").bold().bright_white().on_bright_black());
+    println!("{}", "────────────────────────────────────────────".bright_black());
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
-
-    pb.set_message("Checking staged changes...");
+    pb.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.green} {msg}")?);
+    pb.set_message("Checking for staged changes...");
     check_staged_changes()?;
-
     pb.set_message("Fetching recent commit messages...");
     let last_commits = get_last_commit_messages()?;
     pb.finish_and_clear();
@@ -86,28 +85,29 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     display_commit_messages(&last_commits);
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner().template("{spinner} {msg}")?);
-    pb.set_message("Generating commit message from OpenAI...");
+    pb.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.magenta} {msg}")?);
+    pb.set_message("Generating commit message with AI magic...");
     let commit_message = generate_commit_message(openai, &last_commits)?;
-
     pb.finish_and_clear();
-    println!("Generated commit message:");
-    println!("{}", style(&commit_message).green().bold());
-    println!();
+
+    println!("{}\n{}\n{}", "✨ Suggested Commit Message:".bold().bright_green(), "────────────────────────────────────────────".bright_black(), style(&commit_message).bright_white().bold().on_bright_green());
+    println!("{}", "────────────────────────────────────────────".bright_black());
 
     if Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt("Do you want to proceed with this commit message?")
+        .with_prompt(style("Proceed with this commit message?").bright_cyan().to_string())
         .default(true)
-        .interact()?
-    {
+        .interact()? {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(ProgressStyle::default_spinner().template("{spinner:.cyan} {msg}")?);
         pb.set_message("Committing changes...");
-        pb.enable_steady_tick(Duration::from_millis(100));
+        pb.enable_steady_tick(Duration::from_millis(80));
         perform_git_commit(&commit_message)?;
-        pb.finish_with_message("Commit successful!");
+        pb.finish_with_message(style("✅ Commit successful!").bold().bright_green().to_string());
     } else {
-        println!("Commit cancelled.");
+        println!("{}", style("Commit cancelled by user.").bold().bright_yellow());
     }
-
+    println!("\n{}", "Thank you for using Commitaura!".italic().bright_black());
     Ok(())
 }
 
@@ -241,17 +241,16 @@ fn estimate_tokens(text: &str) -> Result<usize, CommitauraError> {
 }
 
 fn display_commit_messages(commits: &str) {
-    println!("{}", "📜 Recent Commit Messages:".bold().bright_blue());
-    println!("{}", "─".repeat(40).bright_blue());
+    println!("{} {}", "📜".bold().bright_blue(), "Recent Commit Messages:".bold().bright_white());
+    println!("{}", "────────────────────────────────────────────".bright_black());
     for (i, message) in commits.lines().enumerate() {
         println!(
             "{} {}",
-            format!("{}.", i + 1).bright_yellow(),
-            message.bright_white()
+            format!("{}.", i + 1).bright_yellow().bold(),
+            message.bright_white().italic()
         );
     }
-    println!("{}", "─".repeat(40).bright_blue());
-    println!();
+    println!("{}\n", "────────────────────────────────────────────".bright_black());
 }
 
 #[cfg(test)]
