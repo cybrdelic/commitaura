@@ -70,8 +70,8 @@ fn main() -> Result<(), CommitauraError> {
 
 fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     term.clear_screen()?;
-    println!("{} {}\n", "🚀".bold().bright_cyan(), style("Commitaura: Commit Assistant").bold().bright_white().on_bright_black());
-    println!("{}", "────────────────────────────────────────────".bright_black());
+    println!("{} {}\n", "🚀".bold().cyan(), style("Commitaura: Commit Assistant").bold().white().on_black());
+    println!("{}", "────────────────────────────────────────────".white());
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::default_spinner()
@@ -91,11 +91,17 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     let commit_message = generate_commit_message(openai, &last_commits)?;
     pb.finish_and_clear();
 
-    println!("{}\n{}\n{}", "✨ Suggested Commit Message:".bold().bright_green(), "────────────────────────────────────────────".bright_black(), style(&commit_message).bright_white().bold().on_bright_green());
-    println!("{}", "────────────────────────────────────────────".bright_black());
+    // Draw a box around the commit message for clarity and style
+    let border = "┌".to_string() + &"─".repeat(48) + "┐";
+    let bottom = "└".to_string() + &"─".repeat(48) + "┘";
+    println!("{}", "✨ Suggested Commit Message:".bold().green());
+    println!("{}", "────────────────────────────────────────────".white());
+    println!("{}", commit_message.bold().white());
+    println!("{}", "────────────────────────────────────────────".white());
+    println!("{}", "────────────────────────────────────────────".white());
 
     if Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt(style("Proceed with this commit message?").bright_cyan().to_string())
+        .with_prompt(style("Proceed with this commit message?").cyan().to_string())
         .default(true)
         .interact()? {
         let pb = ProgressBar::new_spinner();
@@ -103,11 +109,11 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
         pb.set_message("Committing changes...");
         pb.enable_steady_tick(Duration::from_millis(80));
         perform_git_commit(&commit_message)?;
-        pb.finish_with_message(style("✅ Commit successful!").bold().bright_green().to_string());
+        pb.finish_with_message(style("✅ Commit successful!").bold().green().to_string());
     } else {
-        println!("{}", style("Commit cancelled by user.").bold().bright_yellow());
+        println!("{}", style("Commit cancelled by user.").bold().yellow());
     }
-    println!("\n{}", "Thank you for using Commitaura!".italic().bright_black());
+    println!("\n{}", "Thank you for using Commitaura!".italic().white());
     Ok(())
 }
 
@@ -165,7 +171,7 @@ fn generate_commit_message(openai: &OpenAI, last_commits: &str) -> Result<String
     let system_message =
         "You are a helpful assistant that generates concise and meaningful Git commit messages.";
     let prompt = format!(
-        "Write a concise and meaningful Git commit message based on the following changes (do not include any other text other than the commit message). Do not use the same word at the beginning of every commit message. Be extremely specific. Do not be vague. Consider the context of the last 5 commit messages:\n\nLast 5 commit messages:\n{}\n\nCurrent changes:\n",
+        "Write a highly specific, imperative Git commit message based only on the following changes. Do NOT use generic phrases like 'improved readability', 'aesthetic appeal', or 'refactored code'. Instead, reference concrete details such as filenames, functions, variables, or logic that was changed. Be precise about what was changed, how, and why. Do not include any other text except the commit message. Consider the context of the last 5 commit messages:\n\nLast 5 commit messages:\n{}\n\nCurrent changes:\n",
         last_commits
     );
 
@@ -241,16 +247,16 @@ fn estimate_tokens(text: &str) -> Result<usize, CommitauraError> {
 }
 
 fn display_commit_messages(commits: &str) {
-    println!("{} {}", "📜".bold().bright_blue(), "Recent Commit Messages:".bold().bright_white());
-    println!("{}", "────────────────────────────────────────────".bright_black());
+    println!("{} {}", "📜".bold().blue(), "Recent Commit Messages:".bold().white());
+    println!("{}", "────────────────────────────────────────────".white());
     for (i, message) in commits.lines().enumerate() {
         println!(
             "{} {}",
-            format!("{}.", i + 1).bright_yellow().bold(),
-            message.bright_white().italic()
+            format!("{}.", i + 1).yellow().bold(),
+            message.white().italic()
         );
     }
-    println!("{}\n", "────────────────────────────────────────────".bright_black());
+    println!("{}\n", "────────────────────────────────────────────".white());
 }
 
 #[cfg(test)]
