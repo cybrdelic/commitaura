@@ -98,6 +98,17 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     println!("{}", "────────────────────────────────────────────".white());
     println!("{}", commit_message.bold().white());
     println!("{}", "────────────────────────────────────────────".white());
+
+    // Allow user to edit/tweak the commit message (multi-line supported)
+    let edited_message: String = dialoguer::Editor::new()
+        .require_save(true)
+        .extension(".tmp")
+        .edit(&commit_message)
+        .unwrap_or_else(|_| Some(commit_message.clone()))
+        .unwrap_or(commit_message.clone());
+    println!("{}", "────────────────────────────────────────────".white());
+    println!("{}", "Final Commit Message Preview:".bold().cyan());
+    println!("{}", edited_message.bold().white());
     println!("{}", "────────────────────────────────────────────".white());
 
     if Confirm::with_theme(&ColorfulTheme::default())
@@ -108,7 +119,7 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
         pb.set_style(ProgressStyle::default_spinner().template("{spinner:.cyan} {msg}")?);
         pb.set_message("Committing changes...");
         pb.enable_steady_tick(Duration::from_millis(80));
-        perform_git_commit(&commit_message)?;
+        perform_git_commit(&edited_message)?;
         pb.finish_with_message(style("✅ Commit successful!").bold().green().to_string());
     } else {
         println!("{}", style("Commit cancelled by user.").bold().yellow());
