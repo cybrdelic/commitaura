@@ -711,44 +711,66 @@
                 display: none;
             }
 
+            .hero {
+                padding-top: 6rem;
+                padding-bottom: var(--space-12);
+            }
+
             .hero-container {
                 grid-template-columns: 1fr;
                 gap: var(--space-8);
                 text-align: center;
+                padding: 0 var(--space-4);
+            }
+
+            .hero-content {
+                order: 1;
             }
 
             .hero-content h1 {
-                font-size: var(--text-4xl);
+                font-size: var(--text-3xl);
+                line-height: 1.3;
+            }
+
+            .hero-subtitle {
+                font-size: var(--text-lg);
+                margin-bottom: var(--space-6);
             }
 
             .hero-cta {
                 flex-direction: column;
                 align-items: stretch;
+                gap: var(--space-4);
+            }
+
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                justify-content: center;
+                padding: var(--space-4);
             }
 
             .hero-stats {
+                flex-wrap: wrap;
                 justify-content: center;
                 gap: var(--space-6);
+            }
+
+            .hero-demo {
+                order: 2;
+                margin: 0 var(--space-4);
             }
 
             .terminal {
                 transform: none;
                 margin-top: var(--space-8);
+                max-width: 100%;
+                overflow-x: auto;
             }
 
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .footer-content {
-                grid-template-columns: 1fr;
-                gap: var(--space-6);
-            }
-
-            .footer-bottom {
-                flex-direction: column;
-                gap: var(--space-4);
-                text-align: center;
+            .terminal-content {
+                min-height: 300px;
+                font-size: var(--text-xs);
             }
         }
 
