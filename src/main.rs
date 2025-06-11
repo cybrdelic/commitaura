@@ -6,6 +6,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use openai_api_rust::chat::*;
 use openai_api_rust::*;
+use std::fs;
 use std::time::Duration;
 use thiserror::Error;
 use tiktoken_rs::p50k_base;
@@ -49,6 +50,15 @@ struct Cli {
 enum Commands {
     /// Automatically generate commit message and commit
     Commit,
+    /// Generate comprehensive documentation from git history
+    Story {
+        /// Output file for the generated story (default: project_story.md)
+        #[arg(short, long, default_value = "project_story.md")]
+        output: String,
+        /// Include detailed commit analysis
+        #[arg(long)]
+        detailed: bool,
+    },
 }
 
 fn main() -> Result<(), CommitauraError> {
@@ -60,10 +70,9 @@ fn main() -> Result<(), CommitauraError> {
     let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
 
     let cli = Cli::parse();
-    let term = Term::stdout();
-
-    match cli.command {
+    let term = Term::stdout();    match cli.command {
         Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
+        Some(Commands::Story { output, detailed }) => handle_story(&openai, &term, &output, detailed)?,
     }
     Ok(())
 }
@@ -91,21 +100,33 @@ fn handle_commit(openai: &OpenAI, term: &Term) -> Result<(), CommitauraError> {
     let commit_message = generate_commit_message(openai, &last_commits)?;
     pb.finish_and_clear();
 
-    // Draw a box around the commit message for clarity and style
-    let border = "┌".to_string() + &"─".repeat(48) + "┐";
-    let bottom = "└".to_string() + &"─".repeat(48) + "┘";
+    // Draw a box around the commit message for clarity and style    let _border = "┌".to_string() + &"─".repeat(48) + "┐";
+    let _bottom = "└".to_string() + &"─".repeat(48) + "┘";
     println!("{}", "✨ Suggested Commit Message:".bold().green());
     println!("{}", "────────────────────────────────────────────".white());
     println!("{}", commit_message.bold().white());
     println!("{}", "────────────────────────────────────────────".white());
 
-    // Allow user to edit/tweak the commit message (multi-line supported)
-    let edited_message: String = dialoguer::Editor::new()
-        .require_save(true)
-        .extension(".tmp")
-        .edit(&commit_message)
-        .unwrap_or_else(|_| Some(commit_message.clone()))
-        .unwrap_or(commit_message.clone());
+    // Allow user to edit/tweak the commit message (inline in terminal)
+    println!("{}", "Edit the commit message below. Press Enter to accept, or type your own:");
+    let subject: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Subject (short summary, <50 chars)")
+        .default(commit_message.clone())
+        .interact_text()?;
+    let add_body = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Add a longer description/body?")
+        .default(false)
+        .interact()?;
+    let mut edited_message = subject.clone();
+    if add_body {
+        let body: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Body (optional, details)")
+            .allow_empty(true)
+            .interact_text()?;
+        if !body.trim().is_empty() {
+            edited_message = format!("{}\n\n{}", subject.trim(), body.trim());
+        }
+    }
     println!("{}", "────────────────────────────────────────────".white());
     println!("{}", "Final Commit Message Preview:".bold().cyan());
     println!("{}", edited_message.bold().white());
@@ -268,6 +289,431 @@ fn display_commit_messages(commits: &str) {
         );
     }
     println!("{}\n", "────────────────────────────────────────────".white());
+}
+
+fn handle_story(openai: &OpenAI, term: &Term, output_file: &str, detailed: bool) -> Result<(), CommitauraError> {
+    term.clear_screen()?;
+    println!("{} {}\n", "📚".bold().cyan(), style("Commitaura: Project Story Generator").bold().white().on_black());
+    println!("{}", "────────────────────────────────────────────".white());
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.green} {msg}")?);
+
+    // Fetch complete git history
+    pb.set_message("Analyzing git repository...");
+    let repo_info = get_repository_info()?;
+
+    pb.set_message("Fetching complete git history...");
+    let commit_history = get_complete_git_history(detailed)?;
+
+    pb.set_message("Analyzing project structure...");
+    let project_structure = analyze_project_structure()?;
+
+    pb.set_message("Generating comprehensive project story...");
+    let story = generate_project_story(openai, &repo_info, &commit_history, &project_structure, detailed)?;
+
+    pb.finish_and_clear();
+
+    // Save the story to file
+    fs::write(output_file, &story)
+        .map_err(|e| CommitauraError::IoError(e))?;
+
+    println!("{}", "✅ Project Story Generated Successfully!".bold().green());
+    println!("{}", "────────────────────────────────────────────".white());
+    println!("{} {}", "📄".bold().blue(), format!("Story saved to: {}", output_file).bold().white());
+    println!("{} {} characters", "📊".bold().yellow(), story.len().to_string().bold().white());
+    println!("{}", "────────────────────────────────────────────".white());
+
+    if Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Would you like to preview the story?")
+        .default(false)
+        .interact()? {
+
+        // Show a preview of the story
+        let preview = if story.len() > 2000 {
+            format!("{}...\n\n[Story truncated for preview - see {} for full content]",
+                    &story[..2000], output_file)
+        } else {
+            story.clone()
+        };
+
+        println!("\n{}", "Story Preview:".bold().cyan());
+        println!("{}", "════════════════════════════════════════════".white());
+        println!("{}", preview);
+        println!("{}", "════════════════════════════════════════════".white());
+    }
+
+    println!("\n{}", "Thank you for using Commitaura Story Generator!".italic().white());
+    Ok(())
+}
+
+#[derive(Debug)]
+struct RepositoryInfo {
+    name: String,
+    total_commits: usize,
+    first_commit_date: String,
+    last_commit_date: String,
+    contributors: Vec<String>,
+    branch_count: usize,
+}
+
+#[derive(Debug)]
+struct CommitAnalysis {
+    commits: Vec<CommitInfo>,
+    file_changes: std::collections::HashMap<String, usize>,
+    commit_patterns: Vec<String>,
+    development_phases: Vec<String>,
+}
+
+#[derive(Debug)]
+struct CommitInfo {
+    hash: String,
+    author: String,
+    date: String,
+    message: String,
+    files_changed: usize,
+    insertions: usize,
+    deletions: usize,
+}
+
+fn get_repository_info() -> Result<RepositoryInfo, CommitauraError> {
+    // Get repository name
+    let repo_name = std::env::current_dir()
+        .map_err(|e| CommitauraError::IoError(e))?
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    // Get total commit count
+    let commit_count_output = std::process::Command::new("git")
+        .args(&["rev-list", "--count", "HEAD"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let total_commits = String::from_utf8(commit_count_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .trim()
+        .parse::<usize>()
+        .unwrap_or(0);
+
+    // Get first commit date
+    let first_commit_output = std::process::Command::new("git")
+        .args(&["log", "--reverse", "--format=%ai", "-1"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let first_commit_date = String::from_utf8(first_commit_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .trim()
+        .to_string();
+
+    // Get last commit date
+    let last_commit_output = std::process::Command::new("git")
+        .args(&["log", "--format=%ai", "-1"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let last_commit_date = String::from_utf8(last_commit_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .trim()
+        .to_string();
+
+    // Get contributors
+    let contributors_output = std::process::Command::new("git")
+        .args(&["shortlog", "-sn", "--all"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let contributors = String::from_utf8(contributors_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .lines()
+        .map(|line| line.trim().splitn(2, '\t').nth(1).unwrap_or("").to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+
+    // Get branch count
+    let branch_output = std::process::Command::new("git")
+        .args(&["branch", "-a"])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let branch_count = String::from_utf8(branch_output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?
+        .lines()
+        .count();
+
+    Ok(RepositoryInfo {
+        name: repo_name,
+        total_commits,
+        first_commit_date,
+        last_commit_date,
+        contributors,
+        branch_count,
+    })
+}
+
+fn get_complete_git_history(detailed: bool) -> Result<CommitAnalysis, CommitauraError> {
+    let format_str = if detailed {
+        "%H|%an|%ai|%s|"
+    } else {
+        "%H|%an|%ai|%s|"
+    };
+
+    let output = std::process::Command::new("git")
+        .args(&["log", "--all", "--reverse", &format!("--format={}", format_str)])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let log_output = String::from_utf8(output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let mut commits = Vec::new();
+    let file_changes = std::collections::HashMap::new();
+    let mut commit_patterns = Vec::new();
+
+    for line in log_output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() >= 4 {
+            let hash = parts[0].to_string();
+            let author = parts[1].to_string();
+            let date = parts[2].to_string();
+            let message = parts[3].to_string();
+
+            // Get detailed stats for this commit if detailed mode
+            let (files_changed, insertions, deletions) = if detailed {
+                get_commit_stats(&hash)?
+            } else {
+                (0, 0, 0)
+            };
+
+            // Analyze commit patterns
+            if message.starts_with("feat") || message.starts_with("add") {
+                commit_patterns.push("Feature Development".to_string());
+            } else if message.starts_with("fix") || message.starts_with("bug") {
+                commit_patterns.push("Bug Fixes".to_string());
+            } else if message.starts_with("refactor") || message.starts_with("clean") {
+                commit_patterns.push("Code Refactoring".to_string());
+            } else if message.starts_with("docs") || message.starts_with("doc") {
+                commit_patterns.push("Documentation".to_string());
+            } else if message.starts_with("test") {
+                commit_patterns.push("Testing".to_string());
+            } else {
+                commit_patterns.push("General Development".to_string());
+            }
+
+            commits.push(CommitInfo {
+                hash,
+                author,
+                date,
+                message,
+                files_changed,
+                insertions,
+                deletions,
+            });
+        }
+    }
+
+    // Analyze development phases
+    let development_phases = analyze_development_phases(&commits);
+
+    Ok(CommitAnalysis {
+        commits,
+        file_changes,
+        commit_patterns,
+        development_phases,
+    })
+}
+
+fn get_commit_stats(hash: &str) -> Result<(usize, usize, usize), CommitauraError> {
+    let output = std::process::Command::new("git")
+        .args(&["show", "--stat", "--format=", hash])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let stats_output = String::from_utf8(output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let mut files_changed = 0;
+    let mut insertions = 0;
+    let mut deletions = 0;
+
+    for line in stats_output.lines() {
+        if line.contains("files changed") || line.contains("file changed") {
+            // Parse the summary line
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for (i, part) in parts.iter().enumerate() {
+                if *part == "file" || *part == "files" {
+                    if i > 0 {
+                        files_changed = parts[i-1].parse().unwrap_or(0);
+                    }
+                } else if *part == "insertions(+)" {
+                    if i > 0 {
+                        insertions = parts[i-1].parse().unwrap_or(0);
+                    }
+                } else if *part == "deletions(-)" {
+                    if i > 0 {
+                        deletions = parts[i-1].parse().unwrap_or(0);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((files_changed, insertions, deletions))
+}
+
+fn analyze_development_phases(commits: &[CommitInfo]) -> Vec<String> {
+    let mut phases = Vec::new();
+
+    if commits.is_empty() {
+        return phases;
+    }
+
+    // Simple phase detection based on commit patterns and timing
+    let total_commits = commits.len();
+    let early_phase = total_commits / 4;
+    let mid_phase = total_commits / 2;
+    let late_phase = (total_commits * 3) / 4;
+
+    phases.push(format!("🌱 **Initial Development** (Commits 1-{})", early_phase));
+    phases.push(format!("🚀 **Core Development** (Commits {}-{})", early_phase + 1, mid_phase));
+    phases.push(format!("🔧 **Feature Expansion** (Commits {}-{})", mid_phase + 1, late_phase));
+    phases.push(format!("✨ **Refinement & Polish** (Commits {}-{})", late_phase + 1, total_commits));
+
+    phases
+}
+
+fn analyze_project_structure() -> Result<String, CommitauraError> {
+    let output = std::process::Command::new("find")
+        .args(&[".", "-type", "f", "-name", "*.rs", "-o", "-name", "*.toml", "-o", "-name", "*.md", "-o", "-name", "*.json"])
+        .output()
+        .or_else(|_| {
+            // Fallback for Windows
+            std::process::Command::new("powershell")
+                .args(&["-Command", "Get-ChildItem -Recurse -Include *.rs,*.toml,*.md,*.json | Select-Object -ExpandProperty FullName"])
+                .output()
+        })
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let structure = String::from_utf8(output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    Ok(structure)
+}
+
+fn generate_project_story(
+    openai: &OpenAI,
+    repo_info: &RepositoryInfo,
+    commit_analysis: &CommitAnalysis,
+    project_structure: &str,
+    detailed: bool,
+) -> Result<String, CommitauraError> {
+    let system_message = "You are an expert technical writer and software development historian. Your task is to analyze a complete git repository history and create a comprehensive, engaging narrative that tells the story of the project's development journey. Focus on identifying key phases, challenges overcome, technical achievements, and growth patterns. Write in a professional yet engaging tone that would be suitable for documentation, portfolio presentations, or technical retrospectives.";
+
+    // Prepare commit summary
+    let commit_summary = if detailed && commit_analysis.commits.len() > 50 {
+        // For detailed mode with many commits, provide a structured summary
+        format!(
+            "Repository: {}\nTotal Commits: {}\nDevelopment Period: {} to {}\nContributors: {}\nBranches: {}\n\nCommit Patterns Analysis:\n{}\n\nDevelopment Phases:\n{}\n\nRecent Commits Sample:\n{}",
+            repo_info.name,
+            repo_info.total_commits,
+            repo_info.first_commit_date,
+            repo_info.last_commit_date,
+            repo_info.contributors.join(", "),
+            repo_info.branch_count,
+            commit_analysis.commit_patterns.iter().collect::<std::collections::HashSet<_>>().into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+            commit_analysis.development_phases.join("\n"),
+            commit_analysis.commits.iter().rev().take(20).map(|c| format!("{}: {}", c.date, c.message)).collect::<Vec<_>>().join("\n")
+        )
+    } else {
+        // For regular mode or fewer commits, include all commits
+        format!(
+            "Repository: {}\nTotal Commits: {}\nDevelopment Period: {} to {}\nContributors: {}\nBranches: {}\n\nComplete Commit History:\n{}",
+            repo_info.name,
+            repo_info.total_commits,
+            repo_info.first_commit_date,
+            repo_info.last_commit_date,
+            repo_info.contributors.join(", "),
+            repo_info.branch_count,
+            commit_analysis.commits.iter().map(|c| format!("{} [{}]: {}", c.date, c.author, c.message)).collect::<Vec<_>>().join("\n")
+        )
+    };
+
+    let prompt = format!(
+        "Analyze this git repository and create a comprehensive project story. Generate a well-structured markdown document that includes:\n\n1. **Executive Summary** - Brief overview of the project\n2. **Project Genesis** - How the project began\n3. **Development Journey** - Key phases and milestones\n4. **Technical Evolution** - Major technical decisions and changes\n5. **Challenges & Solutions** - Problems faced and how they were overcome\n6. **Key Achievements** - Notable accomplishments and breakthroughs\n7. **Growth Patterns** - Development velocity, learning curves\n8. **Current State** - Where the project stands today\n9. **Future Outlook** - Potential next steps based on trajectory\n\nRepository Data:\n{}\n\nProject Structure:\n{}\n\nMake the story engaging and insightful, identifying patterns in development style, periods of intense activity, architectural decisions, and the evolution of the codebase. Use specific commit messages and dates to support your narrative.",
+        commit_summary,
+        project_structure
+    );
+
+    // Estimate tokens and handle large histories
+    let system_tokens = estimate_tokens(system_message)?;
+    let prompt_tokens = estimate_tokens(&prompt)?;
+    let estimated_tokens = system_tokens + prompt_tokens;
+
+    let final_prompt = if estimated_tokens > MAX_TOKENS - 2000 {
+        // Truncate if too large
+        let available_tokens = MAX_TOKENS - system_tokens - 2000;
+        let bpe = p50k_base().map_err(|e| CommitauraError::TokenizerError(e.to_string()))?;
+        let tokens = bpe.encode_with_special_tokens(&prompt);
+        let truncated_tokens = tokens[..available_tokens.min(tokens.len())].to_vec();
+        bpe.decode(truncated_tokens)
+            .map_err(|e| CommitauraError::TokenizerError(e.to_string()))?
+    } else {
+        prompt
+    };
+
+    let body = ChatBody {
+        model: MODEL_NAME.to_string(),
+        max_tokens: Some(4000),
+        temperature: Some(0.7),
+        top_p: Some(1.0),
+        n: Some(1),
+        stream: Some(false),
+        stop: None,
+        presence_penalty: None,
+        frequency_penalty: None,
+        logit_bias: None,
+        user: None,
+        messages: vec![
+            Message {
+                role: Role::System,
+                content: system_message.to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: final_prompt,
+            },
+        ],
+    };
+
+    let rs = openai
+        .chat_completion_create(&body)
+        .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
+
+    let choice = rs.choices;
+    let message = &choice[0]
+        .message
+        .as_ref()
+        .ok_or(CommitauraError::ApiRequestFailed(
+            "No message in API response".to_string(),
+        ))?;
+
+    let story = message.content.trim().to_string();
+
+    if story.is_empty() {
+        Err(CommitauraError::ApiRequestFailed(
+            "Received empty story from LLM.".to_string(),
+        ))
+    } else {
+        info!("Generated project story: {} characters", story.len());
+        Ok(story)
+    }
 }
 
 #[cfg(test)]

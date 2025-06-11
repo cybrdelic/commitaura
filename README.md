@@ -56,11 +56,19 @@ This approach ensures that your commit history remains clean, informative, and p
 
 ## 🎯 Features
 
+### Commit Assistant
 - **Context-Aware**: Considers both your current changes and recent commit history.
 - **Token Management**: Automatically truncates input to fit within the LLM's token limits.
 - **Interactive**: Asks for confirmation before committing.
 - **Modern CLI**: Uses colorful, user-friendly terminal output.
 - **Error Handling**: Provides clear error messages for common issues (e.g., no staged changes, API errors).
+
+### Project Story Generator
+- **Complete Git Analysis**: Analyzes entire project history from first commit to present.
+- **AI-Powered Insights**: Uses advanced AI to identify patterns, phases, and achievements.
+- **Comprehensive Documentation**: Generates detailed markdown reports with multiple sections.
+- **Flexible Output**: Customizable output files and detail levels.
+- **Professional Format**: Creates portfolio-ready documentation.
 
 ---
 
@@ -147,6 +155,58 @@ Improve error handling in payment processing
 
 Do you want to proceed with this commit message? [Y/n]:
 ```
+
+---
+
+## 📚 Story Command - Project Documentation Generator
+
+Commitaura includes a powerful `story` command that analyzes your entire git history and generates comprehensive documentation about your project's development journey.
+
+### Usage
+
+```bash
+# Generate a basic project story
+commitaura story
+
+# Generate detailed analysis with commit statistics
+commitaura story --detailed
+
+# Specify custom output file
+commitaura story --output my_project_journey.md
+```
+
+### What It Generates
+
+The story command creates a comprehensive markdown document that includes:
+
+- **Executive Summary**: Project overview and purpose
+- **Project Genesis**: How the project started and initial goals
+- **Development Journey**: Key phases, milestones, and evolution timeline
+- **Technical Evolution**: Major technical decisions and architectural changes
+- **Challenges & Solutions**: Problems encountered and resolution strategies
+- **Key Achievements**: Notable accomplishments and breakthroughs
+- **Growth Patterns**: Development velocity, learning curves, and trends
+- **Current State**: Project maturity and status assessment
+- **Future Outlook**: Potential next steps and opportunities
+
+### Perfect For
+
+- 📁 **Portfolio Documentation**: Create compelling project narratives
+- 🔍 **Team Retrospectives**: Understand project evolution over time
+- 📖 **Technical Documentation**: Generate comprehensive project histories
+- 🤝 **Project Handoffs**: Provide context to new team members
+- 💭 **Personal Reflection**: Understand your development journey
+
+### Example Output
+
+The generated story provides insights like:
+- Development phases and their characteristics
+- Periods of intense activity vs. maintenance
+- Evolution of coding practices and technologies
+- Key contributors and their impact
+- Technical milestones and achievements
+
+For detailed documentation, see [STORY_COMMAND.md](STORY_COMMAND.md).
 
 ---
 
