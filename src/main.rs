@@ -5,14 +5,20 @@ use dialoguer::{theme::ColorfulTheme, Confirm};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use openai_api_rust::chat::*;
+use openai_api_rust::embeddings::*;
 use openai_api_rust::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 use tiktoken_rs::p50k_base;
 
 const MODEL_NAME: &str = "gpt-4o";
 const MAX_TOKENS: usize = 128000; // Adjust this based on the model's actual limit
+const EMBEDDING_MODEL: &str = "text-embedding-3-small";
+const EMBEDDING_DIMENSION: usize = 1536;
 
 #[derive(Error, Debug)]
 enum CommitauraError {
@@ -59,6 +65,17 @@ enum Commands {
         #[arg(long)]
         detailed: bool,
     },
+    /// Search git history by semantic meaning using AI embeddings
+    Search {
+        /// Natural language search query
+        query: String,
+        /// Number of results to show (default: 10)
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+        /// Rebuild embedding cache from scratch
+        #[arg(long)]
+        rebuild_cache: bool,
+    },
 }
 
 fn main() -> Result<(), CommitauraError> {
@@ -70,9 +87,14 @@ fn main() -> Result<(), CommitauraError> {
     let openai = OpenAI::new(auth, "https://api.openai.com/v1/");
 
     let cli = Cli::parse();
-    let term = Term::stdout();    match cli.command {
+    let term = Term::stdout();
+
+    match cli.command {
         Some(Commands::Commit) | None => handle_commit(&openai, &term)?,
         Some(Commands::Story { output, detailed }) => handle_story(&openai, &term, &output, detailed)?,
+        Some(Commands::Search { query, limit, rebuild_cache }) => {
+            handle_search(&openai, &term, &query, limit, rebuild_cache)?
+        }
     }
     Ok(())
 }
@@ -716,6 +738,285 @@ fn generate_project_story(
     }
 }
 
+// ============================================================================
+// SEMANTIC SEARCH FUNCTIONALITY
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CommitEmbedding {
+    hash: String,
+    author: String,
+    date: String,
+    message: String,
+    embedding: Vec<f32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct EmbeddingCache {
+    commits: Vec<CommitEmbedding>,
+    version: String,
+}
+
+impl EmbeddingCache {
+    fn new() -> Self {
+        Self {
+            commits: Vec::new(),
+            version: "1.0".to_string(),
+        }
+    }
+
+    fn cache_path() -> Result<PathBuf, CommitauraError> {
+        let cache_dir = dirs::cache_dir()
+            .ok_or(CommitauraError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Could not find cache directory",
+            )))?;
+
+        let commitaura_cache = cache_dir.join("commitaura");
+        fs::create_dir_all(&commitaura_cache)?;
+        Ok(commitaura_cache.join("embeddings.bin"))
+    }
+
+    fn load() -> Result<Self, CommitauraError> {
+        let path = Self::cache_path()?;
+        if !path.exists() {
+            return Ok(Self::new());
+        }
+
+        let data = fs::read(&path)?;
+        bincode::deserialize(&data)
+            .map_err(|e| CommitauraError::IoError(
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+            ))
+    }
+
+    fn save(&self) -> Result<(), CommitauraError> {
+        let path = Self::cache_path()?;
+        let data = bincode::serialize(self)
+            .map_err(|e| CommitauraError::IoError(
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+            ))?;
+        fs::write(&path, data)?;
+        Ok(())
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    if magnitude_a == 0.0 || magnitude_b == 0.0 {
+        0.0
+    } else {
+        dot_product / (magnitude_a * magnitude_b)
+    }
+}
+
+fn generate_embedding(openai: &OpenAI, text: &str) -> Result<Vec<f32>, CommitauraError> {
+    let body = EmbeddingsBody {
+        model: EMBEDDING_MODEL.to_string(),
+        input: vec![text.to_string()],
+        user: None,
+    };
+
+    let result = openai
+        .embeddings_create(&body)
+        .map_err(|e| CommitauraError::OpenAIError(e.to_string()))?;
+
+    let data = result.data.ok_or_else(|| {
+        CommitauraError::ApiRequestFailed("No embedding data returned".to_string())
+    })?;
+
+    if data.is_empty() {
+        return Err(CommitauraError::ApiRequestFailed(
+            "Empty embedding data returned".to_string(),
+        ));
+    }
+
+    let embedding = data[0].embedding.clone().ok_or_else(|| {
+        CommitauraError::ApiRequestFailed("Embedding field is None".to_string())
+    })?;
+
+    // Convert from Vec<f64> to Vec<f32>
+    Ok(embedding.iter().map(|&x| x as f32).collect())
+}
+
+fn get_all_commits_for_search() -> Result<Vec<CommitInfo>, CommitauraError> {
+    let format_str = "%H|%an|%ai|%s";
+
+    let output = std::process::Command::new("git")
+        .args(&["log", "--all", &format!("--format={}", format_str)])
+        .output()
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let log_output = String::from_utf8(output.stdout)
+        .map_err(|e| CommitauraError::GitOperationFailed(e.to_string()))?;
+
+    let mut commits = Vec::new();
+
+    for line in log_output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() >= 4 {
+            commits.push(CommitInfo {
+                hash: parts[0].to_string(),
+                author: parts[1].to_string(),
+                date: parts[2].to_string(),
+                message: parts[3].to_string(),
+                files_changed: 0,
+                insertions: 0,
+                deletions: 0,
+            });
+        }
+    }
+
+    Ok(commits)
+}
+
+fn handle_search(
+    openai: &OpenAI,
+    term: &Term,
+    query: &str,
+    limit: usize,
+    rebuild_cache: bool,
+) -> Result<(), CommitauraError> {
+    term.clear_screen()?;
+    println!("{} {}\n", "🔍".bold().cyan(), style("Commitaura: Semantic Commit Search").bold().white().on_black());
+    println!("{}", "────────────────────────────────────────────".white());
+    println!("{} {}\n", "Query:".bold().blue(), query.italic().white());
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.green} {msg}")?);
+
+    // Load or rebuild cache
+    pb.set_message("Loading embedding cache...");
+    let mut cache = if rebuild_cache {
+        EmbeddingCache::new()
+    } else {
+        EmbeddingCache::load()?
+    };
+
+    // Get all commits
+    pb.set_message("Fetching commit history...");
+    let all_commits = get_all_commits_for_search()?;
+
+    // Build a map of existing embeddings by commit hash
+    let mut existing_embeddings: HashMap<String, CommitEmbedding> = cache
+        .commits
+        .iter()
+        .map(|ce| (ce.hash.clone(), ce.clone()))
+        .collect();
+
+    // Generate embeddings for new commits
+    let mut new_embeddings_count = 0;
+    for (idx, commit) in all_commits.iter().enumerate() {
+        if !existing_embeddings.contains_key(&commit.hash) {
+            pb.set_message(format!("Generating embeddings... ({}/{})", idx + 1, all_commits.len()));
+
+            let text = format!("{}\n{}\n{}", commit.message, commit.author, commit.date);
+            let embedding = generate_embedding(openai, &text)?;
+
+            let commit_embedding = CommitEmbedding {
+                hash: commit.hash.clone(),
+                author: commit.author.clone(),
+                date: commit.date.clone(),
+                message: commit.message.clone(),
+                embedding,
+            };
+
+            existing_embeddings.insert(commit.hash.clone(), commit_embedding);
+            new_embeddings_count += 1;
+
+            // Small delay to avoid rate limiting
+            if new_embeddings_count % 10 == 0 {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+
+    // Update cache with all embeddings
+    cache.commits = existing_embeddings.values().cloned().collect();
+
+    if new_embeddings_count > 0 {
+        pb.set_message("Saving embedding cache...");
+        cache.save()?;
+    }
+
+    // Generate embedding for the query
+    pb.set_message("Analyzing your query...");
+    let query_embedding = generate_embedding(openai, query)?;
+
+    // Calculate similarities and sort
+    pb.set_message("Searching commits...");
+    let mut results: Vec<(CommitEmbedding, f32)> = cache
+        .commits
+        .iter()
+        .map(|commit| {
+            let similarity = cosine_similarity(&query_embedding, &commit.embedding);
+            (commit.clone(), similarity)
+        })
+        .collect();
+
+    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    pb.finish_and_clear();
+
+    // Display results
+    println!("{}", "Results:".bold().green());
+    println!("{}", "────────────────────────────────────────────".white());
+
+    let display_limit = limit.min(results.len());
+
+    if results.is_empty() {
+        println!("{}", "No commits found.".yellow());
+    } else {
+        for (i, (commit, score)) in results.iter().take(display_limit).enumerate() {
+            let score_color = if *score > 0.8 {
+                "green"
+            } else if *score > 0.6 {
+                "yellow"
+            } else {
+                "white"
+            };
+
+            println!("\n{} {} {}",
+                format!("{}.", i + 1).bold().cyan(),
+                format!("[Score: {:.3}]", score).color(score_color).bold(),
+                format!("({})", &commit.hash[..8]).dimmed()
+            );
+            println!("   {} {}", "Message:".bold(), commit.message.white());
+            println!("   {} {} {}", "Author:".dimmed(), commit.author.dimmed(),
+                     format!("({})", commit.date).dimmed());
+        }
+    }
+
+    println!("\n{}", "────────────────────────────────────────────".white());
+    println!("{} {} commits searched, {} displayed",
+        "📊".bold().blue(),
+        cache.commits.len().to_string().bold().white(),
+        display_limit.to_string().bold().white()
+    );
+
+    if new_embeddings_count > 0 {
+        println!("{} {} new commits indexed",
+            "✨".bold().green(),
+            new_embeddings_count.to_string().bold().white()
+        );
+    }
+
+    println!("\n{}", "Thank you for using Commitaura Search!".italic().white());
+    Ok(())
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,5 +1034,16 @@ mod tests {
     fn test_generate_commit_message() {
         // Mock the OpenAI client and test the generate_commit_message function
         // This is a placeholder and should be implemented with proper mocking
+    }
+
+    #[test]
+    fn test_cosine_similarity() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 0.001);
+
+        let c = vec![1.0, 0.0, 0.0];
+        let d = vec![0.0, 1.0, 0.0];
+        assert!((cosine_similarity(&c, &d)).abs() < 0.001);
     }
 }
