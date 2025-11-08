@@ -70,6 +70,14 @@ This approach ensures that your commit history remains clean, informative, and p
 - **Flexible Output**: Customizable output files and detail levels.
 - **Professional Format**: Creates portfolio-ready documentation.
 
+### Semantic Commit Search
+- **Meaning-Based Search**: Search git history by semantic meaning, not just keywords.
+- **AI Embeddings**: Uses OpenAI's text-embedding-3-small model for vector similarity.
+- **Intelligent Caching**: Automatically caches embeddings to avoid redundant API calls.
+- **Relevance Scoring**: Results ranked by cosine similarity with color-coded scores.
+- **Incremental Updates**: Only generates embeddings for new commits.
+- **Natural Language**: Ask questions like "when did we add authentication?" or "bug fixes for validation".
+
 ---
 
 ## ⚡ Installation
@@ -207,6 +215,83 @@ The generated story provides insights like:
 - Technical milestones and achievements
 
 For detailed documentation, see [STORY_COMMAND.md](STORY_COMMAND.md).
+
+---
+
+## 🔍 Search Command - Semantic Commit History Search
+
+Commitaura's revolutionary `search` command allows you to search your git history by **meaning**, not just keywords. Using AI embeddings, it understands the semantic context of your commits and finds relevant results even when they don't contain exact text matches.
+
+### Usage
+
+```bash
+# Search for commits related to a concept
+commitaura search "when did we add authentication?"
+
+# Find bug fixes related to validation
+commitaura search "validation bug fixes" --limit 5
+
+# Rebuild the embedding cache from scratch
+commitaura search "performance improvements" --rebuild-cache
+```
+
+### How It Works
+
+1. **First Run**: On your first search, Commitaura analyzes all commits in your repository and generates AI embeddings for each one. These are cached locally for future searches.
+2. **Incremental Updates**: Subsequent searches only generate embeddings for new commits, making them fast.
+3. **Semantic Matching**: Your query is converted to an embedding and compared against all commit embeddings using cosine similarity.
+4. **Ranked Results**: Results are sorted by relevance with color-coded similarity scores.
+
+### Example Session
+
+```shell
+$ commitaura search "refactoring code quality"
+🔍 Commitaura: Semantic Commit Search
+
+Query: refactoring code quality
+────────────────────────────────────────────
+
+Results:
+────────────────────────────────────────────
+
+1. [Score: 0.847] (a3f2c91d)
+   Message: refactor: improve code organization in auth module
+   Author: Jane Doe (2024-01-15 14:23:00 +0000)
+
+2. [Score: 0.792] (b1e4a832)
+   Message: chore: apply clippy suggestions for better code quality
+   Author: John Smith (2024-01-10 09:15:00 +0000)
+
+3. [Score: 0.756] (c8d9f142)
+   Message: refactor: extract common validation logic into utils
+   Author: Jane Doe (2024-01-08 16:45:00 +0000)
+
+────────────────────────────────────────────
+📊 156 commits searched, 3 displayed
+✨ 0 new commits indexed
+
+Thank you for using Commitaura Search!
+```
+
+### Features
+
+- **Natural Language Queries**: Search using plain English questions
+- **Semantic Understanding**: Finds conceptually related commits, not just keyword matches
+- **Smart Caching**: Embeddings cached in `~/.cache/commitaura/` (or platform equivalent)
+- **Fast Updates**: Only processes new commits after initial indexing
+- **Relevance Scoring**: Color-coded scores (green: highly relevant, yellow: moderate, white: lower)
+- **Customizable Results**: Use `--limit` to control how many results to display
+- **Cache Management**: Use `--rebuild-cache` to start fresh if needed
+
+### Use Cases
+
+- "Find commits related to a specific feature I worked on months ago"
+- "What changes were made for performance optimization?"
+- "Show me all authentication-related work"
+- "When did we fix the memory leak issue?"
+- "Find commits that added new API endpoints"
+
+The search command is particularly powerful for large repositories with extensive histories where traditional `git log --grep` falls short.
 
 ---
 
